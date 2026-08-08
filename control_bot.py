@@ -38,9 +38,13 @@ DEVICE_MAP = {
 DEVICE_LIST_TEXT = "\n".join(f"- {name}" for name in DEVICE_MAP.keys())
 
 
-def build_help_text():
+def build_help_text(with_greeting=True):
     """기기 목록을 사람이 보기 좋은 안내문으로 정리"""
-    lines = ["안녕하세요! 🙌 제가 할 수 있는 건 이런 것들이에요:\n"]
+    lines = []
+    if with_greeting:
+        lines.append("안녕하세요! 🙌 제가 할 수 있는 건 이런 것들이에요:\n")
+    else:
+        lines.append("제가 할 수 있는 건 이런 것들이에요:\n")
     lines.append("🔌 [켜기/끄기 가능한 기기]")
     for name in DEVICE_MAP.keys():
         lines.append(f"- {name}")
@@ -187,8 +191,8 @@ def main():
 
                 if intent != "control":
                     send_telegram(
-                        "음, 무슨 기기를 어떻게 하라는 건지 잘 모르겠어요 🤔\n\n"
-                        + build_help_text(),
+                        "음, 정확히 어떤 걸 원하시는지 모르겠어요 🤔 대신 이런 걸 해드릴 수 있어요:\n\n"
+                        + build_help_text(with_greeting=False),
                         chat_id,
                     )
                     continue
@@ -198,8 +202,8 @@ def main():
 
                 if not device_name or not command:
                     send_telegram(
-                        "음, 무슨 기기를 어떻게 하라는 건지 잘 모르겠어요 🤔\n\n"
-                        + build_help_text(),
+                        "음, 정확히 어떤 걸 원하시는지 모르겠어요 🤔 대신 이런 걸 해드릴 수 있어요:\n\n"
+                        + build_help_text(with_greeting=False),
                         chat_id,
                     )
                     continue
