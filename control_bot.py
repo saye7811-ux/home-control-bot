@@ -187,8 +187,8 @@ def main():
 
                 if intent != "control":
                     send_telegram(
-                        "음, 무슨 기기를 어떻게 하라는 건지 잘 모르겠어요 🤔\n"
-                        "예: '안방 에어컨 켜줘' / 할 수 있는 걸 보려면 '뭐 할 수 있어?'라고 물어보세요!",
+                        "음, 무슨 기기를 어떻게 하라는 건지 잘 모르겠어요 🤔\n\n"
+                        + build_help_text(),
                         chat_id,
                     )
                     continue
@@ -198,8 +198,8 @@ def main():
 
                 if not device_name or not command:
                     send_telegram(
-                        "음, 무슨 기기를 어떻게 하라는 건지 잘 모르겠어요 🤔\n"
-                        "예: '안방 에어컨 켜줘'",
+                        "음, 무슨 기기를 어떻게 하라는 건지 잘 모르겠어요 🤔\n\n"
+                        + build_help_text(),
                         chat_id,
                     )
                     continue
