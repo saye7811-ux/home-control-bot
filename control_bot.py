@@ -81,8 +81,141 @@ def ask_claude_for_action(user_text):
     result = res.json()
     text = result["content"][0]["text"].strip()
 
-    text = text.replace("```json", "").replace("```", "").strip()
+    text = text.replace("json", "").replace("", "").strip()
 
     try:
         return json.loads(text)
-    except
+    except json.JSONDecodeError:
+        return {"intent": "unknown"}
+
+
+def control_device(device_name, command):
+    """SmartThings에 실제 제어 명령 전송"""
+    device_id = DEVICE_MAP.get(device_name)
+    if not device_id:
+        return False, "기기를 찾을 수 없습니다."
+
+    url = f"https://api.smartthings.com/v1/devices/{device_id}/commands"
+    headers = {
+        "Authorization": f"Bearer {SMARTTHINGS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "commands": [
+            {"component": "main", "capability": "switch", "command": command}
+        ]
+    }
+    res = requests.post(url, headers=headers, json=body, timeout=15)
+    if res.status_code == 200:
+        return True, "성공"
+    return False, f"실패 (status {res.status_code}): {res.text}"
+
+
+def get_device_status(device_name):
+    """SmartThings에서 기기의 현재 on/off 상태 조회"""
+    device_id = DEVICE_MAP.get(device_name)
+    if not device_id:
+        return None, "기기를 찾을 수 없습니다."
+
+    url = f"https://api.smartthings.com/v1/devices/{device_id}/status"
+    headers = {"Authorization": f"Bearer {SMARTTHINGS_TOKEN}"}
+    res = requests.get(url, headers=headers, timeout=15)
+    if res.status_code != 200:
+        return None, f"조회 실패 (status {res.status_code})"
+
+    try:
+        switch_state = res.json()["components"]["main"]["switch"]["switch"]["value"]
+        return switch_state, "성공"
+    except (KeyError, TypeError):
+        return None, "상태 정보를 읽지 못했습니다."
+
+
+def send_telegram(text, chat_id):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    params = {"chat_id": chat_id, "text": text}
+    requests.get(url, params=params, timeout=10)
+
+
+def get_updates(offset):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
+    params = {"timeout": 30, "offset": offset}
+    res = requests.get(url, params=params, timeout=40)
+    return res.json()
+
+
+def main():
+    print("가전 제어봇 시작...")
+    offset = None
+
+    while True:
+        try:
+            updates = get_updates(offset)
+            for update in updates.get("result", []):
+                offset = update["update_id"] + 1
+
+                message = update.get("message")
+                if not message or "text" not in message:
+                    continue
+
+                chat_id = str(message["chat"]["id"])
+                user_text = message["text"]
+                print(f"받은 메시지: {user_text}")
+
+                action = ask_claude_for_action(user_text)
+                intent = action.get("intent")
+
+                if intent == "help":
+                    send_telegram(build_help_text(), chat_id)
+                    continue
+
+                if intent == "status":
+                    device_name = action.get("device")
+                    if not device_name:
+                        send_telegram(
+                            "어떤 기기 상태가 궁금하신 거예요? 🤔 예: '안방 에어컨 켜져있어?'",
+                            chat_id,
+                        )
+                        continue
+                    state, msg = get_device_status(device_name)
+                    if state == "on":
+                        send_telegram(f"{device_name} 지금 켜져있어요! 🟢", chat_id)
+                    elif state == "off":
+                        send_telegram(f"{device_name} 지금 꺼져있어요. ⚪", chat_id)
+                    else:
+                        send_telegram(f"앗, {device_name} 상태를 못 가져왔어요 😅 ({msg})", chat_id)
+                    continue
+
+                if intent != "control":
+                    send_telegram(
+                        "음, 무슨 기기를 어떻게 하라는 건지 잘 모르겠어요 🤔\n"
+                        "예: '안방 에어컨 켜줘' / 할 수 있는 걸 보려면 '뭐 할 수 있어?'라고 물어보세요!",
+                        chat_id,
+                    )
+                    continue
+
+                device_name = action.get("device")
+                command = action.get("command")
+
+                if not device_name or not command:
+                    send_telegram(
+                        "음, 무슨 기기를 어떻게 하라는 건지 잘 모르겠어요 🤔\n"
+                        "예: '안방 에어컨 켜줘'",
+                        chat_id,
+                    )
+                    continue
+
+                success, msg = control_device(device_name, command)
+                action_kr = "켰어요" if command == "on" else "껐어요"
+                emoji = "🟢" if command == "on" else "⚪"
+                if success:
+                    send_telegram(f"{device_name} {action_kr}! {emoji}", chat_id)
+                else:
+                    send_telegram(f"앗, {device_name} 제어에 실패했어요 😢 ({msg})", chat_id)
+
+        except Exception as e:
+            print(f"오류 발생: {e}")
+            time.sleep(5)
+
+
+if __name__ == "__main__":
+    main()
