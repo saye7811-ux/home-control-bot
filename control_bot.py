@@ -16,20 +16,18 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
 SMARTTHINGS_TOKEN = os.environ.get("SMARTTHINGS_TOKEN", "")
 
-# 기기 이름 -> (deviceId, capability) 매핑
-# capability는 대부분 switch(on/off)로 처리, 필요시 확장 가능
 DEVICE_MAP = {
     "안방 에어컨": "23d517ad-5b62-4426-be23-5179795a9d26",
     "거실 에어컨": "a703e1b9-4b90-4c2f-a9e4-300a3b66f7e4",
     "주방 에어컨": "443c166a-383a-4575-af99-58375b2592ed",
-    "침실1 에어컨": "bedde265-fc7a-4d6b-925d-bd3668eba9a9",
-    "침실2 에어컨": "bce23093-d3a3-4012-ab37-544f66d4a157",
+    "취미방 에어컨": "bedde265-fc7a-4d6b-925d-bd3668eba9a9",
+    "손님방 에어컨": "bce23093-d3a3-4012-ab37-544f66d4a157",
     "안방 조명": "7197d415-8c3e-4eb6-ba0f-c9efcc1c64e8",
     "거실 메인 조명": "46474a84-c2bc-44d5-9670-a153634ac1d9",
     "거실 보조 조명": "bb1ed665-47d4-4e76-9f94-e6d7dc886daa",
-    "침실1 조명": "8e20c53d-0b1b-4aeb-a0ff-e308585a01b5",
-    "침실2 조명": "782460ad-5105-4253-b25a-11f0580890e9",
-    "알파룸 조명": "60ddb35b-3186-455e-b9ee-7a287c45e853",
+    "취미방 조명": "8e20c53d-0b1b-4aeb-a0ff-e308585a01b5",
+    "손님방 조명": "782460ad-5105-4253-b25a-11f0580890e9",
+    "거실 팬트리 조명": "60ddb35b-3186-455e-b9ee-7a287c45e853",
     "복도 조명": "a4c655ab-dbb6-4b28-a7ed-6af51ec560f3",
     "일괄소등": "5be56120-7200-4b5b-9eb6-35444565f969",
     "공기청정기": "63b35583-534c-d1bf-f87c-f59d9ff24887",
@@ -40,8 +38,18 @@ DEVICE_MAP = {
 DEVICE_LIST_TEXT = "\n".join(f"- {name}" for name in DEVICE_MAP.keys())
 
 
+def build_help_text():
+    """기기 목록을 사람이 보기 좋은 안내문으로 정리"""
+    lines = ["제가 할 수 있는 건 이런 것들이에요:\n"]
+    lines.append("[켜기/끄기 가능한 기기]")
+    for name in DEVICE_MAP.keys():
+        lines.append(f"- {name}")
+    lines.append("\n예시: '안방 에어컨 켜줘', '거실 조명 꺼줘', '일괄소등 해줘'")
+    return "\n".join(lines)
+
+
 def ask_claude_for_action(user_text):
-    """사용자 문장을 보고 어떤 기기에 어떤 동작을 할지 클로드에게 판단시킴"""
+    """사용자 문장을 보고 어떤 기기에 어떤 동작을 할지, 혹은 기능 안내가 필요한지 클로드에게 판단시킴"""
     url = "https://api.anthropic.com/v1/messages"
     headers = {
         "x-api-key": CLAUDE_API_KEY,
@@ -52,11 +60,13 @@ def ask_claude_for_action(user_text):
         "너는 집 가전을 제어하는 비서야. 아래는 우리 집에 있는 기기 목록이야.\n\n"
         f"{DEVICE_LIST_TEXT}\n\n"
         f"사용자가 이렇게 말했어: \"{user_text}\"\n\n"
-        "이 목록에 있는 기기 이름과 정확히 똑같은 이름, 그리고 command(on 또는 off)를 "
-        "골라서 아래 JSON 형식으로만 답해줘. 다른 설명은 절대 붙이지 마.\n"
-        '{"device": "기기이름", "command": "on 또는 off"}\n\n'
-        "만약 목록에 없는 기기를 말했거나, 무슨 뜻인지 이해할 수 없으면 아래처럼 답해줘.\n"
-        '{"device": null, "command": null}'
+        "아래 세 가지 중 하나로 판단해서 JSON으로만 답해줘. 다른 설명은 절대 붙이지 마.\n\n"
+        "1) 특정 기기를 켜거나 끄라는 명령이면:\n"
+        '{"intent": "control", "device": "기기이름(목록과 정확히 동일하게)", "command": "on 또는 off"}\n\n'
+        "2) 봇이 뭘 할 수 있는지 묻거나, 사용법을 묻는 질문이면:\n"
+        '{"intent": "help"}\n\n'
+        "3) 위 두 경우가 아니거나, 목록에 없는 기기를 말했거나, 무슨 뜻인지 모르겠으면:\n"
+        '{"intent": "unknown"}'
     )
     payload = {
         "model": "claude-haiku-4-5-20251001",
@@ -67,13 +77,12 @@ def ask_claude_for_action(user_text):
     result = res.json()
     text = result["content"][0]["text"].strip()
 
-    # 클로드가 혹시 코드블록(```json ... ```)으로 감싸서 답할 경우 대비
     text = text.replace("```json", "").replace("```", "").strip()
 
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        return {"device": None, "command": None}
+        return {"intent": "unknown"}
 
 
 def control_device(device_name, command):
@@ -130,6 +139,20 @@ def main():
                 print(f"받은 메시지: {user_text}")
 
                 action = ask_claude_for_action(user_text)
+                intent = action.get("intent")
+
+                if intent == "help":
+                    send_telegram(build_help_text(), chat_id)
+                    continue
+
+                if intent != "control":
+                    send_telegram(
+                        "무슨 기기를 어떻게 하라는 건지 못 알아들었어요. "
+                        "예: '안방 에어컨 켜줘' / 할 수 있는 걸 보려면 '뭐 할 수 있어?'라고 물어보세요.",
+                        chat_id,
+                    )
+                    continue
+
                 device_name = action.get("device")
                 command = action.get("command")
 
