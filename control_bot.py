@@ -71,9 +71,11 @@ def ask_claude_for_action(user_text):
         '{"intent": "control", "device": "기기이름(목록과 정확히 동일하게)", "command": "on 또는 off"}\n\n'
         "2) 특정 기기가 켜져있는지/꺼져있는지 상태를 묻는 질문이면:\n"
         '{"intent": "status", "device": "기기이름(목록과 정확히 동일하게)"}\n\n'
-        "3) 봇이 뭘 할 수 있는지 묻거나, 사용법을 묻는 질문이면:\n"
+        "3) 봇이 뭘 할 수 있는지 묻거나, 사용법/명령어를 묻는 질문이면 (예: '뭐 할 수 있어?', "
+        "'너한테 어떤거 시킬수있어?', '뭐 시킬 수 있어?', '사용법 알려줘', '뭐 해줄 수 있어?', "
+        "'명령어 뭐있어?', '기기 목록 보여줘' 등):\n"
         '{"intent": "help"}\n\n'
-        "4) 위 세 경우가 아니거나, 목록에 없는 기기를 말했거나, 무슨 뜻인지 모르겠으면:\n"
+        "4) 위 세 경우가 아니거나, 목록에 없는 기기를 말했거나, 인사말/잡담이거나, 무슨 뜻인지 모르겠으면:\n"
         '{"intent": "unknown"}'
     )
     payload = {
@@ -85,12 +87,40 @@ def ask_claude_for_action(user_text):
     result = res.json()
     text = result["content"][0]["text"].strip()
 
-    text = text.replace("json", "").replace("", "").strip()
+    text = text.replace("```json", "").replace("```", "").strip()
 
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         return {"intent": "unknown"}
+
+
+def ask_claude_for_reply(user_text):
+    """의도 파악이 안 되는 메시지에 대해, 고정 문구 대신 클로드가 자연스러운 대화체 답장을 생성"""
+    url = "https://api.anthropic.com/v1/messages"
+    headers = {
+        "x-api-key": CLAUDE_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    prompt = (
+        "너는 집 가전을 제어하는 친근한 텔레그램 봇이야. 이모티콘을 적절히 섞어서 대답해.\n\n"
+        "네가 실제로 할 수 있는 일은 아래 기기들을 켜고 끄거나 상태를 확인해주는 것뿐이야:\n\n"
+        f"{DEVICE_LIST_TEXT}\n\n"
+        f"사용자가 이렇게 말했어: \"{user_text}\"\n\n"
+        "이건 가전 제어나 상태 확인 요청은 아닌 것 같아. 사용자 말에 자연스럽게 반응하면서, "
+        "네가 실제로 할 수 있는 건 가전 제어/상태 확인뿐이라는 걸 짧고 친근하게 알려줘. "
+        "기기 목록을 전부 나열하지는 말고, 필요하면 '뭐 할 수 있는지 알려줘' 같은 말로 유도해. "
+        "2~3문장 이내로, 다른 설명 없이 답변 텍스트만 출력해."
+    )
+    payload = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 200,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    res = requests.post(url, headers=headers, json=payload, timeout=30)
+    result = res.json()
+    return result["content"][0]["text"].strip()
 
 
 def control_device(device_name, command):
@@ -189,32 +219,27 @@ def main():
                         send_telegram(f"앗, {device_name} 상태를 못 가져왔어요 😅 ({msg})", chat_id)
                     continue
 
-                if intent != "control":
-                    send_telegram(
-                        "음, 정확히 어떤 걸 원하시는지 모르겠어요 🤔 대신 이런 걸 해드릴 수 있어요:\n\n"
-                        + build_help_text(with_greeting=False),
-                        chat_id,
-                    )
+                if intent == "control":
+                    device_name = action.get("device")
+                    command = action.get("command")
+
+                    if not device_name or not command:
+                        reply = ask_claude_for_reply(user_text)
+                        send_telegram(reply, chat_id)
+                        continue
+
+                    success, msg = control_device(device_name, command)
+                    action_kr = "켰어요" if command == "on" else "껐어요"
+                    emoji = "🟢" if command == "on" else "⚪"
+                    if success:
+                        send_telegram(f"{device_name} {action_kr}! {emoji}", chat_id)
+                    else:
+                        send_telegram(f"앗, {device_name} 제어에 실패했어요 😢 ({msg})", chat_id)
                     continue
 
-                device_name = action.get("device")
-                command = action.get("command")
-
-                if not device_name or not command:
-                    send_telegram(
-                        "음, 정확히 어떤 걸 원하시는지 모르겠어요 🤔 대신 이런 걸 해드릴 수 있어요:\n\n"
-                        + build_help_text(with_greeting=False),
-                        chat_id,
-                    )
-                    continue
-
-                success, msg = control_device(device_name, command)
-                action_kr = "켰어요" if command == "on" else "껐어요"
-                emoji = "🟢" if command == "on" else "⚪"
-                if success:
-                    send_telegram(f"{device_name} {action_kr}! {emoji}", chat_id)
-                else:
-                    send_telegram(f"앗, {device_name} 제어에 실패했어요 😢 ({msg})", chat_id)
+                # intent가 unknown인 경우 - 고정 문구 대신 클로드가 상황에 맞게 답장 생성
+                reply = ask_claude_for_reply(user_text)
+                send_telegram(reply, chat_id)
 
         except Exception as e:
             print(f"오류 발생: {e}")
