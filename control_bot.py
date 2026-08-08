@@ -35,6 +35,9 @@ DEVICE_MAP = {
     "주방 가스밸브": "1f238424-eae2-40ab-93b1-6dba1d4bad38",
 }
 
+# 전체 상태 조회 시 제외할 기기 (실제 on/off 상태를 가진 기기가 아니라 버튼/씬)
+STATUS_EXCLUDE = {"일괄소등"}
+
 DEVICE_LIST_TEXT = "\n".join(f"- {name}" for name in DEVICE_MAP.keys())
 
 
@@ -49,7 +52,7 @@ def build_help_text(with_greeting=True):
     for name in DEVICE_MAP.keys():
         lines.append(f"- {name}")
     lines.append("\n📊 [상태 확인도 가능해요]")
-    lines.append("예: '안방 에어컨 켜져있어?', '지금 상태 어때?'")
+    lines.append("예: '안방 에어컨 켜져있어?', '지금 뭐 켜져있어?' (전체 조회)")
     lines.append("\n💬 예시: '안방 에어컨 켜줘', '거실 조명 꺼줘', '일괄소등 해줘'")
     return "\n".join(lines)
 
@@ -66,16 +69,19 @@ def ask_claude_for_action(user_text):
         "너는 집 가전을 제어하는 비서야. 아래는 우리 집에 있는 기기 목록이야.\n\n"
         f"{DEVICE_LIST_TEXT}\n\n"
         f"사용자가 이렇게 말했어: \"{user_text}\"\n\n"
-        "아래 네 가지 중 하나로 판단해서 JSON으로만 답해줘. 다른 설명은 절대 붙이지 마.\n\n"
+        "아래 다섯 가지 중 하나로 판단해서 JSON으로만 답해줘. 다른 설명은 절대 붙이지 마.\n\n"
         "1) 특정 기기를 켜거나 끄라는 명령이면:\n"
         '{"intent": "control", "device": "기기이름(목록과 정확히 동일하게)", "command": "on 또는 off"}\n\n'
-        "2) 특정 기기가 켜져있는지/꺼져있는지 상태를 묻는 질문이면:\n"
+        "2) 특정 기기 하나를 콕 집어서 켜져있는지/꺼져있는지 묻는 질문이면 (예: '안방 에어컨 켜져있어?'):\n"
         '{"intent": "status", "device": "기기이름(목록과 정확히 동일하게)"}\n\n'
-        "3) 봇이 뭘 할 수 있는지 묻거나, 사용법/명령어를 묻는 질문이면 (예: '뭐 할 수 있어?', "
-        "'너한테 어떤거 시킬수있어?', '뭐 시킬 수 있어?', '사용법 알려줘', '뭐 해줄 수 있어?', "
-        "'명령어 뭐있어?', '기기 목록 보여줘' 등):\n"
+        "3) 특정 기기를 지정하지 않고, 지금 전체적으로 뭐가 켜져있는지/꺼져있는지 묻는 질문이면 "
+        "(예: '지금 뭐 켜져있어?', '켜져있는 거 다 보여줘', '집 상태 어때?', '지금 기기들 상태 확인해줘', "
+        "'뭐 켜놓고 나왔지?'):\n"
+        '{"intent": "status_all"}\n\n'
+        "4) 봇이 뭘 할 수 있는지 묻거나, 사용법/명령어를 묻는 질문이면 (예: '뭐 할 수 있어?', "
+        "'너한테 어떤거 시킬수있어?', '뭐 시킬 수 있어?', '사용법 알려줘', '명령어 뭐있어?' 등):\n"
         '{"intent": "help"}\n\n'
-        "4) 위 세 경우가 아니거나, 목록에 없는 기기를 말했거나, 인사말/잡담이거나, 무슨 뜻인지 모르겠으면:\n"
+        "5) 위 네 경우가 아니거나, 목록에 없는 기기를 말했거나, 인사말/잡담이거나, 무슨 뜻인지 모르겠으면:\n"
         '{"intent": "unknown"}'
     )
     payload = {
@@ -146,7 +152,7 @@ def control_device(device_name, command):
 
 
 def get_device_status(device_name):
-    """SmartThings에서 기기의 현재 on/off 상태 조회"""
+    """SmartThings에서 기기 하나의 현재 on/off 상태 조회"""
     device_id = DEVICE_MAP.get(device_name)
     if not device_id:
         return None, "기기를 찾을 수 없습니다."
@@ -162,6 +168,52 @@ def get_device_status(device_name):
         return switch_state, "성공"
     except (KeyError, TypeError):
         return None, "상태 정보를 읽지 못했습니다."
+
+
+def get_all_device_status():
+    """등록된 모든 기기(일괄소등 제외)를 순회하며 상태 조회, 켜진 것/꺼진 것/조회 실패로 분류"""
+    on_list = []
+    off_list = []
+    failed_list = []
+
+    for name in DEVICE_MAP.keys():
+        if name in STATUS_EXCLUDE:
+            continue
+        state, _ = get_device_status(name)
+        if state == "on":
+            on_list.append(name)
+        elif state == "off":
+            off_list.append(name)
+        else:
+            failed_list.append(name)
+
+    return on_list, off_list, failed_list
+
+
+def build_all_status_text(on_list, off_list, failed_list):
+    """전체 상태 조회 결과를 사람이 보기 좋은 메시지로 정리"""
+    lines = []
+    if on_list:
+        lines.append(f"🟢 켜져있는 기기 ({len(on_list)}개)")
+        for name in on_list:
+            lines.append(f"- {name}")
+    else:
+        lines.append("🟢 켜져있는 기기 없음")
+
+    lines.append("")
+
+    if off_list:
+        lines.append(f"⚪ 꺼져있는 기기 ({len(off_list)}개)")
+        for name in off_list:
+            lines.append(f"- {name}")
+
+    if failed_list:
+        lines.append("")
+        lines.append(f"⚠️ 조회 실패 ({len(failed_list)}개)")
+        for name in failed_list:
+            lines.append(f"- {name}")
+
+    return "\n".join(lines)
 
 
 def send_telegram(text, chat_id):
@@ -202,12 +254,20 @@ def main():
                     send_telegram(build_help_text(), chat_id)
                     continue
 
+                if intent == "status_all":
+                    send_telegram("잠시만요, 전체 기기 상태 확인 중이에요... 🔍", chat_id)
+                    on_list, off_list, failed_list = get_all_device_status()
+                    send_telegram(
+                        build_all_status_text(on_list, off_list, failed_list), chat_id
+                    )
+                    continue
+
                 if intent == "status":
                     device_name = action.get("device")
                     if not device_name:
+                        on_list, off_list, failed_list = get_all_device_status()
                         send_telegram(
-                            "어떤 기기 상태가 궁금하신 거예요? 🤔 예: '안방 에어컨 켜져있어?'",
-                            chat_id,
+                            build_all_status_text(on_list, off_list, failed_list), chat_id
                         )
                         continue
                     state, msg = get_device_status(device_name)
