@@ -1084,42 +1084,74 @@ def cmd_hunt_page(args) -> int:
 
     print(f"\n    발견: {hits}  -> 데이터가 페이지 안에 있습니다.")
 
-    # --- script 안의 JSON/변수 ---
-    from bs4 import BeautifulSoup
-    soup = BeautifulSoup(raw, "lxml")
-    print("\n[script 안의 데이터 후보]")
-    shown = 0
-    for sc in soup.find_all("script"):
-        body = sc.string or sc.get_text() or ""
-        if not body.strip():
+    # --- script 안 변수: point / opt / lank-value 레코드 ---
+    print("\n[script 안 변수 해석]")
+    try:
+        sd = api.extract_page_script_data(raw)
+    except Exception as e:
+        sd = {}
+        warn(f"script 해석 실패: {e}")
+
+    if sd:
+        pt = sd.get("point") or []
+        print(f"    상태 코드표(point): {pt if pt else '못 찾음'}")
+        if sd.get("point_from"):
+            print(f"        정의 위치: {sd['point_from']}")
+        cats = sd.get("catalogs") or {}
+        if cats:
+            print(f"    부위 목록(opt): {len(cats)}개")
+            for nm, entries in list(cats.items())[:8]:
+                names = [e.get("name") for e in entries if e.get("name")]
+                legacy = [e.get("legacy") for e in entries if e.get("legacy")]
+                print(f"        {nm}: {len(entries)}개  {names[:4]}")
+                if legacy:
+                    print(f"            구버전 표기(name201806): {legacy[:3]}")
+        else:
+            print("    부위 목록(opt): 못 찾음")
+
+        recs = sd.get("records") or []
+        print(f"    수리 레코드(lank/value): {len(recs)}건")
+        if sd.get("record_from"):
+            print(f"        정의 위치: {sd['record_from']}")
+        for r in recs[:12]:
+            print(f"        {r}")
+        if sd.get("record_raw"):
+            print("\n    --- 그 변수의 원문 ---")
+            print("    " + sd["record_raw"][:1200])
+
+    # 사장님이 지목한 변수들이 어디서 정의되는지 그대로 보여 준다.
+    WANT = ("current", "initlankflag", "stats", "point", "opt", "lank", "value")
+    defs = (sd.get("defs") or []) if sd else []
+    print("\n[변수 정의 위치]  (script 번호 / 문자 위치)")
+    shown_def = 0
+    for d in defs:
+        base = d["name"].split(".")[-1].lower()
+        if not any(w in base for w in WANT):
             continue
-        dec = _decode_js_escapes(body)
-        if not any(k in dec for k in ("교환", "판금", "tit_part", "Lank", "lank")):
-            continue
-        # 변수 할당 형태를 찾아 본다
-        for m in re.finditer(r"(?:var|let|const)?\s*([\w.$]+)\s*=\s*([\[{].{0,4000}?[\]}])\s*[;\n]",
-                             dec, re.S):
-            name, blob = m.group(1), m.group(2)
-            if not any(k in blob for k in ("교환", "판금", "휀더", "필러", "part", "lank")):
-                continue
-            print(f"\n    --- 변수 {name} ---")
-            print("    " + re.sub(r"\s+", " ", blob)[:600])
-            shown += 1
-            if shown >= 4:
-                break
-        if shown < 4:
-            idx = max((dec.find(k) for k in ("교환", "판금", "tit_part") if k in dec),
-                      default=-1)
-            if idx >= 0:
-                print(f"\n    --- script 조각 (앞뒤 400자) ---")
-                print("    " + re.sub(r"\s+", " ", dec[max(0, idx-400): idx+400]))
-                shown += 1
-        if shown >= 5:
+        print(f"    {d['name']:22} script #{d['script'] + 1} "
+              f"@{d['offset']:>7}  {d['kind']}({d['size']})")
+        print(f"        {d['raw'][:400]}")
+        shown_def += 1
+        if shown_def >= 12:
             break
-    if not shown:
-        print("    (script 안에서는 못 찾음)")
+    if not shown_def:
+        print("    (대입 형태로는 못 찾음 — 아래 원문 조각을 보세요)")
+
+    # 변수 이름이 예상과 달라도 찾을 수 있게, 이름 없이 위치만이라도 보여 준다.
+    print("\n[이름으로 찾은 원문 조각]")
+    NAMES = ["current", "initLankFlag", "stats", "this.point", "uiListLank"]
+    for nm in NAMES:
+        i = decoded.find(nm)
+        if i < 0:
+            print(f"    {nm:16} 없음")
+            continue
+        seg = re.sub(r"\s+", " ", decoded[max(0, i - 160): i + 340])
+        print(f"    {nm:16} @{i}")
+        print(f"        {seg}")
 
     # --- hidden input / data-* 속성 ---
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(raw, "lxml")
     print("\n[hidden input / data-* 속성]")
     found_attr = 0
     for el in soup.find_all(True):
@@ -1150,8 +1182,37 @@ def cmd_hunt_page(args) -> int:
         print("    " + re.sub(r"\s+", " ", decoded[max(0, i-300): i+300]))
         break
 
+    # 지금 파서로 실제로 무엇이 읽히는지 바로 보여 준다.
+    print("\n[이 파일에서 실제로 읽히는 수리 내역]")
+    try:
+        parsed = api.parse_inspection_page(raw)
+    except Exception as e:
+        parsed = None
+        warn(f"파싱 실패: {e}")
+    if parsed:
+        print(f"    경로: {parsed.get('parse_note') or '못 읽음'}")
+        if parsed.get("repairs"):
+            for r in parsed["repairs"]:
+                st = r["status_text"] or "판정 불가"
+                src_note = r.get("resolved_by") or r.get("source") or ""
+                print(f"      [{r['rank']}] {r['raw']:24} {st:10} "
+                      f"({r['status']})  {src_note}")
+        else:
+            print("    (수리 부위 0건)")
+        for rk, txt in (parsed.get("rank_sections") or {}).items():
+            print(f"      {rk}: {txt}")
+        if parsed.get("unmatched_parts"):
+            warn(f"미분류: {parsed['unmatched_parts']}")
+        for k in ("lank_flag", "rank_mismatch"):
+            if parsed.get("field_notes", {}).get(k):
+                warn(parsed["field_notes"][k])
+
     print("\n" + "=" * 74)
-    print(" 위 출력을 그대로 보내주시면 그 형태에 맞춰 파서를 붙이겠습니다.")
+    if parsed and parsed.get("repairs"):
+        print(" script 안 데이터를 읽었습니다. 부위/상태가 브라우저 화면과")
+        print(" 같은지 한 번만 확인해 주세요. 다르면 그 출력을 보내주세요.")
+    else:
+        print(" 위 출력을 그대로 보내주시면 그 형태에 맞춰 파서를 붙이겠습니다.")
     print("=" * 74)
     return 0
 
@@ -1225,7 +1286,10 @@ def cmd_try_urls(args) -> int:
         print(f"\n     확인:  python collect.py --inspect-page {out}")
     else:
         warn("정적 HTML 우회로를 못 찾았습니다.")
-        print("\n  마지막 방법 — 브라우저에서 렌더된 DOM 을 직접 저장:")
+        print("\n  먼저 이것부터 — 원본 페이지의 script 안 데이터를 읽습니다:")
+        print(f"    python collect.py --inspect-page --carid {vid}")
+        print("    (JS 가 그리기 전이라도 데이터는 script 변수에 들어 있습니다)")
+        print("\n  그래도 0건이면 그때 — 브라우저에서 렌더된 DOM 을 직접 저장:")
         print("    1. 성능기록부 페이지를 연다")
         print("    2. F12 -> Elements 탭 -> 최상단 <html> 우클릭")
         print("    3. Copy -> Copy outerHTML")
@@ -1319,6 +1383,22 @@ def cmd_inspect_page(args) -> int:
         print(f"  [{r['rank']:5}] {r['raw'][:24]:26} [{r['status']}]{mark}")
     if parsed["unmatched_parts"]:
         warn(f"부위를 못 알아본 랭크: {parsed['unmatched_parts']}")
+    for _k, _msg in (("lank_flag", "랭크 표시와 어긋남"),
+                     ("rank_mismatch", "부위별 법정 랭크와 어긋남")):
+        if parsed.get("field_notes", {}).get(_k):
+            warn(f"{_msg}: {parsed['field_notes'][_k]}")
+
+    # script 안 데이터에서 읽었다면 어디서 왔는지 밝힌다. 자리번호를
+    # 부위명으로 바꾸는 단계라 한 칸만 밀려도 엉뚱한 부위가 되기 때문이다.
+    ss = parsed.get("script_summary") or {}
+    if ss.get("records"):
+        print("\n[script 안 데이터 출처]")
+        print(f"  상태 코드표 : {ss.get('point')} ({ss.get('point_from') or '-'})")
+        print(f"  부위 목록   : {ss.get('catalogs')}")
+        print(f"  수리 레코드 : {ss['records']}건 ({ss.get('record_from') or '-'})")
+        for r in parsed["repairs"]:
+            if r.get("resolved_by"):
+                print(f"    {r['raw']:24} <- {r['resolved_by']}")
 
     print("\n[라벨 항목]")
     unknown_keys = []

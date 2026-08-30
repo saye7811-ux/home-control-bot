@@ -1,0 +1,91 @@
+<!-- 시험용 가짜 성능기록부 페이지 (v5)
+     실제 엔카 페이지처럼 수리 부위를 HTML 로 그려 주지 않고,
+     script 안 변수(point / opt / lank-value 레코드)에만 담아 둔 형태.
+     <ul class="uiListLank*"> 은 빈 틀이고 자바스크립트가 채운다.
+     한글 일부는 \uXXXX 로 인코딩해 두었다 (실제 페이지와 같은 조건). -->
+<html><head><meta charset="utf-8"><title>성능·상태점검기록부</title></head>
+<body>
+<table class="tbl_info">
+  <tr><th>주행거리</th><td class="txt_detail">57,320 km</td>
+      <th>주행거리 계기상태</th>
+      <td><span class="txt_state on">양호</span>
+          <span class="txt_state">불량</span></td></tr>
+  <tr><th>차대번호 표기</th>
+      <td><span class="txt_state on">양호</span>
+          <span class="txt_state">부적합</span></td>
+      <th>최초등록일</th><td>2023-04-11</td></tr>
+  <tr><th>사고이력</th><th>단순수리</th></tr>
+  <tr><td><span class="txt_state">없음</span>
+          <span class="txt_state active">있음</span></td>
+      <td><span class="txt_state on">없음</span>
+          <span class="txt_state">있음</span></td></tr>
+</table>
+
+<div class="area_lank">
+  <ul class="list_state uiListLank1"><li class="uiLankNone">없음</li></ul>
+  <ul class="list_state uiListLank2"><li class="uiLankNone">없음</li></ul>
+  <ul class="list_state uiListLankA"><li class="uiLankNone">없음</li></ul>
+  <ul class="list_state uiListLankB"><li class="uiLankNone">없음</li></ul>
+  <ul class="list_state uiListLankC"><li class="uiLankNone">없음</li></ul>
+</div>
+
+<script type="text/javascript">
+function InspectionMap() {
+    this.point = ['교환', '판금/용접', '부식',
+                  '흠집', '요철', '손상'];
+}
+var opt1 = [
+    { pos:'left:250px;top:20px',  name:'후드' },
+    { pos:'left:33px;top:66px',   name:'프론트 휀더(좌)' },
+    { pos:'left:455px;top:66px',  name:'프론트 휀더(우)' },
+    { pos:'left:33px;top:120px',  name:'프론트 도어(좌)' },
+    { pos:'left:455px;top:120px', name:'프론트 도어(우)' },
+    { pos:'left:250px;top:300px', name:'트렁크 리드' }
+];
+var opt2 = [
+    { pos:'left:33px;top:230px',  name:'쿼터 패널(좌)' },
+    { pos:'left:455px;top:230px', name:'쿼터 패널(우)' },
+    { pos:'left:250px;top:150px', name:'루프 패널' }
+];
+var optA = [
+    { pos:'left:250px;top:40px',  name:'프론트 패널' },
+    { pos:'left:250px;top:60px',  name:'크로스 멤버' }
+];
+var optB = [
+    { pos:'left:455px;top:112px', name:'필러 패널 A(좌)',
+      name201806:'필러 패널(앞)(좌)' },
+    { pos:'left:455px;top:160px', name:'필러 패널 B(좌)',
+      name201806:'필러 패널(중앙)(좌)' },
+    { pos:'left:33px;top:200px',  name:'휠 하우스(좌)' }
+];
+var optC = [
+    { pos:'left:250px;top:130px', name:'대시 패널' },
+    { pos:'left:250px;top:260px', name:'플로어 패널' }
+];
+
+var initLankFlag = { '1': true, '2': false, 'A': false, 'B': true, 'C': false };
+var lankData = [
+    { lank:'1', value:1, stat:0 },
+    { lank:'1', value:3, stat:1 },
+    { lank:'B', value:0, stat:1 }
+];
+
+$(function () {
+    var stats = new InspectionMap();
+    for (var i = 0; i < lankData.length; i++) {
+        var current = lankData[i];
+        if (current != null) {
+            var lank = current.lank;
+            var target = $('.uiListLank' + lank);
+            var val = current.value;
+            target.find('.uiLankNone').remove();
+            target.append('<li><strong class="tit_part">' +
+                          window['opt' + lank][val].name +
+                          '</strong><div class="txt_state"><span class="i' +
+                          (current.stat + 1) + '">' +
+                          stats.point[current.stat] + '</span></div></li>');
+        }
+    }
+});
+</script>
+</body></html>

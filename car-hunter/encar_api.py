@@ -924,7 +924,13 @@ def resolve_part(name: str) -> tuple[str | None, str | None]:
     """
     import config as _cfg
     flat = re.sub(r"[\s()（）\[\]]", "", name or "")
-    flat = re.sub(r"[좌우전후상하]$", "", flat)
+    # 뒤에 붙은 위치 표기를 떼어 낸다. '필러 패널(앞)(좌)' -> '필러패널'.
+    # 남는 글자가 너무 짧아지면 멈춘다 (부위명 자체를 갉아먹지 않도록).
+    while True:
+        m = re.search(r"(좌|우|전|후|앞|뒤|중앙|상|하)$", flat)
+        if not m or len(flat) - len(m.group(1)) < 3:
+            break
+        flat = flat[:m.start()]
     if not flat:
         return None, None
 
@@ -1151,6 +1157,395 @@ def _status_from_element(el) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# 성능기록부 페이지의 script 안 데이터 읽기
+# ---------------------------------------------------------------------------
+# 이 페이지는 수리 부위 목록을 서버가 HTML 로 그려 주지 않는다. 데이터는
+# script 안 변수에 들어 있고, 자바스크립트가 그것을 읽어
+# <ul class="uiListLank1"> 안에 <li> 를 만들어 넣는다. 실제 로직:
+#
+#   this.point = ['교환','판금/용접','부식','흠집','요철','손상'];
+#   var opt1 = [ {pos:'left:33px;top:66px', name:'프론트 휀더(좌)'}, ... ];
+#   ...
+#   if (current != null) {
+#       lank   = current.lank;                 // 랭크 번호 (1/2/A/B/C)
+#       target = $('.uiListLank' + lank);
+#       val    = current.value;                // 부위 (이름 또는 opt 배열의 자리번호)
+#       ...                                    // stats 로 상태 표시
+#   }
+#
+# 그래서 순서는:
+#   1) script 안의 자바스크립트 리터럴을 전부 읽는다 (JSON 이 아니라
+#      작은따옴표·따옴표 없는 키를 쓰므로 json 모듈로는 안 읽힌다)
+#   2) point 배열 -> 자리번호별 상태 이름
+#   3) name/pos 를 가진 객체 배열 -> 부위 목록 (opt)
+#   4) lank + value 를 가진 객체 -> 이 차의 실제 수리 내역
+#
+# 자리번호를 부위명으로 바꾸는 단계에서 하나만 밀려도 엉뚱한 부위가 되므로,
+# 못 맞추면 추측하지 않고 '판정 불가' 로 남긴다.
+
+
+class JsIdent(str):
+    """자바스크립트 식별자(변수 이름). 문자열 값과 구분하기 위한 표시."""
+    __slots__ = ()
+
+
+_JS_SKIP = re.compile(r"(?:\s+|//[^\n]*|/\*.*?\*/)+", re.S)
+_JS_NUM = re.compile(r"[-+]?(?:0[xX][0-9a-fA-F]+|\d+\.?\d*(?:[eE][-+]?\d+)?|\.\d+)")
+_JS_IDENT = re.compile(r"[A-Za-z_$][\w$]*")
+
+
+def _js_ws(s: str, i: int) -> int:
+    while True:
+        m = _JS_SKIP.match(s, i)
+        if not m:
+            return i
+        i = m.end()
+
+
+def _js_string(s: str, i: int) -> tuple[str, int]:
+    quote = s[i]
+    i += 1
+    buf: list[str] = []
+    esc = {"n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f",
+           "0": "\0", "'": "'", '"': '"', "\\": "\\", "/": "/"}
+    while i < len(s):
+        ch = s[i]
+        if ch == "\\":
+            nxt = s[i + 1] if i + 1 < len(s) else ""
+            if nxt == "u" and re.fullmatch(r"[0-9a-fA-F]{4}", s[i + 2:i + 6] or ""):
+                buf.append(chr(int(s[i + 2:i + 6], 16)))
+                i += 6
+                continue
+            if nxt == "x" and re.fullmatch(r"[0-9a-fA-F]{2}", s[i + 2:i + 4] or ""):
+                buf.append(chr(int(s[i + 2:i + 4], 16)))
+                i += 4
+                continue
+            buf.append(esc.get(nxt, nxt))
+            i += 2
+            continue
+        if ch == quote:
+            return "".join(buf), i + 1
+        buf.append(ch)
+        i += 1
+    raise ValueError("문자열이 닫히지 않음")
+
+
+def js_parse_value(s: str, i: int = 0, depth: int = 0):
+    """자바스크립트 리터럴 하나를 읽어 (값, 끝위치) 를 준다.
+
+    json 모듈은 {name:'후드'} 처럼 키에 따옴표가 없거나 작은따옴표를 쓰는
+    자바스크립트 리터럴을 못 읽는다. 그래서 최소한의 파서를 둔다.
+    """
+    if depth > 24:
+        raise ValueError("너무 깊음")
+    i = _js_ws(s, i)
+    if i >= len(s):
+        raise ValueError("내용 없음")
+    ch = s[i]
+
+    if ch == "{":
+        obj: dict = {}
+        i = _js_ws(s, i + 1)
+        if i < len(s) and s[i] == "}":
+            return obj, i + 1
+        while i < len(s):
+            i = _js_ws(s, i)
+            if s[i] in "\"'":
+                key, i = _js_string(s, i)
+            else:
+                m = _JS_IDENT.match(s, i) or _JS_NUM.match(s, i)
+                if not m:
+                    raise ValueError("객체 키를 못 읽음")
+                key, i = m.group(0), m.end()
+            i = _js_ws(s, i)
+            if i >= len(s) or s[i] != ":":
+                raise ValueError("객체에 ':' 가 없음")
+            val, i = js_parse_value(s, i + 1, depth + 1)
+            obj[key] = val
+            i = _js_ws(s, i)
+            if i < len(s) and s[i] == ",":
+                i += 1
+                i = _js_ws(s, i)
+                if i < len(s) and s[i] == "}":      # 뒤에 붙은 쉼표
+                    return obj, i + 1
+                continue
+            if i < len(s) and s[i] == "}":
+                return obj, i + 1
+            raise ValueError("객체가 닫히지 않음")
+        raise ValueError("객체가 닫히지 않음")
+
+    if ch == "[":
+        arr: list = []
+        i = _js_ws(s, i + 1)
+        if i < len(s) and s[i] == "]":
+            return arr, i + 1
+        while i < len(s):
+            i = _js_ws(s, i)
+            if s[i] == ",":                         # 빈 자리 [1,,3]
+                arr.append(None)
+                i += 1
+                continue
+            if s[i] == "]":
+                return arr, i + 1
+            val, i = js_parse_value(s, i, depth + 1)
+            arr.append(val)
+            i = _js_ws(s, i)
+            if i < len(s) and s[i] == ",":
+                i += 1
+                continue
+            if i < len(s) and s[i] == "]":
+                return arr, i + 1
+            raise ValueError("배열이 닫히지 않음")
+        raise ValueError("배열이 닫히지 않음")
+
+    if ch in "\"'":
+        return _js_string(s, i)
+
+    m = _JS_NUM.match(s, i)
+    if m and (ch.isdigit() or ch in "+-." ):
+        txt = m.group(0)
+        try:
+            val = int(txt, 0) if re.fullmatch(r"[-+]?(0[xX][0-9a-fA-F]+|\d+)", txt) \
+                else float(txt)
+        except ValueError:
+            val = txt
+        return val, m.end()
+
+    m = _JS_IDENT.match(s, i)
+    if m:
+        word = m.group(0)
+        if word == "true":
+            return True, m.end()
+        if word == "false":
+            return False, m.end()
+        if word in ("null", "undefined", "NaN"):
+            return None, m.end()
+        return JsIdent(word), m.end()
+
+    raise ValueError(f"알 수 없는 토큰 {s[i:i+12]!r}")
+
+
+# 변수/속성에 리터럴을 대입하는 자리. `==` 를 대입으로 오인하지 않도록
+# 앞뒤를 확인한다.
+_JS_ASSIGN = re.compile(
+    r"(?:(?:var|let|const)\s+)?"
+    r"((?:this\.)?[A-Za-z_$][\w$.]*)"
+    r"\s*=\s*(?=[\[{])")
+# `point : [ ... ]` 처럼 객체 속성으로 정의되는 경우
+_JS_PROP = re.compile(r"([A-Za-z_$][\w$]*)\s*:\s*(?=[\[{])")
+
+
+def js_definitions(script_text: str, limit: int = 400) -> list[dict]:
+    """script 본문에서 '이름 = 리터럴' / '이름: 리터럴' 을 모두 읽어 낸다.
+
+    각 항목: {name, value, start, end, raw}
+    """
+    out: list[dict] = []
+    seen_spans: list[tuple[int, int]] = []
+    for pattern in (_JS_ASSIGN, _JS_PROP):
+        for m in pattern.finditer(script_text):
+            if len(out) >= limit:
+                break
+            prev = script_text[m.start() - 1] if m.start() else " "
+            if prev in "=!<>+-*/%&|^":
+                continue
+            pos = m.end()
+            if any(a <= pos < b for a, b in seen_spans):
+                continue                    # 이미 읽은 리터럴 안쪽
+            try:
+                val, end = js_parse_value(script_text, pos)
+            except Exception:
+                continue
+            if not isinstance(val, (list, dict)) or not val:
+                continue
+            seen_spans.append((pos, end))
+            out.append({"name": m.group(1), "value": val,
+                        "start": m.start(), "end": end,
+                        "raw": script_text[m.start():end]})
+    out.sort(key=lambda d: d["start"])
+    return out
+
+
+def _has_korean(v) -> bool:
+    return isinstance(v, str) and bool(re.search(r"[가-힣]", v))
+
+
+def _status_words() -> tuple:
+    import config as _cfg
+    return tuple(_cfg.STATUS_TEXT_MAP)
+
+
+def _looks_like_point(val) -> bool:
+    """['교환','판금/용접',...] 처럼 상태 이름만 늘어선 배열인가."""
+    if not isinstance(val, list) or not (3 <= len(val) <= 12):
+        return False
+    words = _status_words()
+    hits = sum(1 for v in val
+               if isinstance(v, str) and any(w in v for w in words))
+    return hits >= max(3, len(val) - 1)
+
+
+def _catalog_entries(val) -> list[dict] | None:
+    """{pos:..., name:'프론트 휀더(좌)'} 객체들의 배열이면 부위 목록으로 본다."""
+    if not isinstance(val, list) or not val:
+        return None
+    entries = []
+    named = 0
+    for item in val:
+        if not isinstance(item, dict):
+            entries.append({})
+            continue
+        name = None
+        legacy = None
+        for k, v in item.items():
+            kl = k.lower()
+            if kl in ("name", "nm", "partnm", "partname", "title", "text"):
+                if isinstance(v, str) and v.strip():
+                    name = v.strip()
+            elif kl.startswith("name") and kl != "name":
+                if isinstance(v, str) and v.strip():
+                    legacy = v.strip()          # name201806 같은 구버전 표기
+        entries.append({"name": name, "legacy": legacy,
+                        "pos": item.get("pos") or item.get("style") or ""})
+        if name:
+            named += 1
+    if named < 1 or named < len(val) * 0.5:
+        return None
+    if not any(_has_korean(e.get("name")) for e in entries):
+        return None
+    return entries
+
+
+_LANK_KEYS = ("lank", "rank", "lnk")
+_VALUE_KEYS = ("value", "val", "part", "partcd", "idx", "index", "no", "num")
+_STAT_KEYS = ("stat", "stats", "status", "state", "point", "gubun", "code", "cd")
+
+
+def _record_dicts(node, acc: list, depth: int = 0) -> None:
+    """lank 와 value 를 함께 가진 객체를 모은다 (이 차의 실제 수리 내역)."""
+    if depth > 12:
+        return
+    if isinstance(node, dict):
+        keys = {k.lower(): k for k in node}
+        if any(k in keys for k in _LANK_KEYS) and \
+                any(k in keys for k in _VALUE_KEYS):
+            acc.append(node)
+        for v in node.values():
+            _record_dicts(v, acc, depth + 1)
+    elif isinstance(node, list):
+        for v in node:
+            _record_dicts(v, acc, depth + 1)
+
+
+def _pick(node: dict, names: tuple):
+    keys = {k.lower(): k for k in node}
+    for n in names:
+        if n in keys:
+            return node[keys[n]]
+    return None
+
+
+def extract_page_script_data(html_text: str) -> dict:
+    """성능기록부 페이지의 script 에서 상태표·부위목록·수리내역을 뽑는다.
+
+    돌려주는 것:
+      point      상태 이름 배열 (자리번호 -> '교환' 등)
+      catalogs   {변수이름: [{name, legacy, pos}, ...]}  부위 목록
+      records    lank/value 를 가진 객체들 (이 차의 수리 내역)
+      defs       --hunt 가 보여 줄 정의 위치 요약
+    """
+    from bs4 import BeautifulSoup
+    try:
+        soup = BeautifulSoup(html_text, "lxml")
+    except Exception:
+        soup = BeautifulSoup(html_text, "html.parser")
+
+    found: dict = {"point": [], "point_from": "", "catalogs": {},
+                   "records": [], "record_from": "", "record_raw": "",
+                   "flags": {}, "defs": [], "script_count": 0}
+
+    for si, sc in enumerate(soup.find_all("script")):
+        if sc.get("src"):
+            continue
+        body = sc.string or sc.get_text() or ""
+        if not body.strip():
+            continue
+        found["script_count"] += 1
+        for d in js_definitions(body):
+            name, val = d["name"], d["value"]
+            short = re.sub(r"\s+", " ", d["raw"])
+            found["defs"].append({
+                "name": name, "script": si, "offset": d["start"],
+                "kind": type(val).__name__, "size": len(val),
+                "raw": short,
+            })
+            base = name.split(".")[-1].lower()
+
+            if not found["point"] and (base in ("point", "points")
+                                       or _looks_like_point(val)):
+                if _looks_like_point(val):
+                    found["point"] = [str(v) for v in val]
+                    found["point_from"] = f"{name} (script #{si + 1})"
+
+            entries = _catalog_entries(val)
+            if entries:
+                found["catalogs"].setdefault(name, entries)
+
+            if base in ("initlankflag", "stats", "lankflag", "current"):
+                found["flags"].setdefault(name, val)
+
+            recs: list = []
+            _record_dicts(val, recs)
+            if recs and not found["records"]:
+                found["records"] = recs
+                found["record_from"] = f"{name} (script #{si + 1})"
+                found["record_raw"] = short[:2000]
+            elif recs:
+                found["records"].extend(
+                    r for r in recs if r not in found["records"])
+
+        # 대입문이 아니라 함수 인자로 바로 넘겨지는 경우:
+        #   drawLank([{lank:'1', value:1, stat:0}, ...])
+        if not found["records"]:
+            for m in re.finditer(r"\[\s*\{", body):
+                try:
+                    val, _end = js_parse_value(body, m.start())
+                except Exception:
+                    continue
+                recs = []
+                _record_dicts(val, recs)
+                if recs:
+                    found["records"] = recs
+                    found["record_from"] = f"(대입 없는 리터럴, script #{si + 1})"
+                    found["record_raw"] = re.sub(
+                        r"\s+", " ", body[m.start():_end])[:2000]
+                    break
+    return found
+
+
+def _catalog_lookup(catalogs: dict, lank: str, index: int):
+    """자리번호 -> 부위 이름. 랭크에 맞는 목록을 먼저 본다.
+
+    맞는 목록을 못 고르면 추측하지 않고 None 을 준다. 목록을 하나 밀려
+    읽으면 엉뚱한 부위가 되므로, 애매하면 '판정 불가' 가 낫다.
+    """
+    suffix = (lank or "").strip().upper()
+    ordered = []
+    for name, entries in catalogs.items():
+        tail = re.sub(r"[^0-9A-Za-z]", "", name)[-1:].upper()
+        ordered.append((0 if (suffix and tail == suffix) else 1, name, entries))
+    ordered.sort(key=lambda t: t[0])
+    exact = [t for t in ordered if t[0] == 0]
+    use = exact if exact else ([ordered[0]] if len(ordered) == 1 else [])
+    for _p, name, entries in use:
+        if 0 <= index < len(entries):
+            e = entries[index]
+            if e.get("name"):
+                return e, name
+    return None, ""
+
+
 def parse_inspection_page(html_text: str) -> dict:
     """성능기록부 HTML 을 구조화한다.
 
@@ -1167,6 +1562,7 @@ def parse_inspection_page(html_text: str) -> dict:
         "ev_hv_unknown": [], "fields": {}, "field_notes": {},
         "rank_sections": {}, "parse_note": "", "observed_state_classes": {},
         "js_render_suspect": False, "js_hints": "", "js_scripts": [],
+        "script_summary": {},
     }
     if not html_text or not html_text.strip():
         out["parse_note"] = "페이지 내용이 비어 있습니다"
@@ -1298,6 +1694,114 @@ def parse_inspection_page(html_text: str) -> dict:
         return re.sub(r"\\u([0-9a-fA-F]{4})",
                       lambda m: chr(int(m.group(1), 16)), t)
 
+    def _positions(name: str) -> str:
+        """'필러 패널(앞)(좌)' -> '앞/좌'. 괄호 안의 위치 표기를 전부 모은다."""
+        got = re.findall(r"[(（]\s*([좌우전후앞뒤상하]+)\s*[)）]", name or "")
+        return "/".join(dict.fromkeys(got))
+
+    def _rank_weight(rk: str) -> float:
+        rng = (_cfg.INSPECTION_RANKS.get(rk) or {}).get("range") or (0.0, 0.0)
+        return (rng[0] + rng[1]) / 2.0
+
+    def _add_repair(rank, raw_name, legacy, stat_text, source, note):
+        canon, own_rank = resolve_part(raw_name)
+        if not canon and legacy:
+            canon, own_rank = resolve_part(legacy)
+        if not canon:
+            label = raw_name + (f" (={legacy})" if legacy else "")
+            out["unmatched_parts"].append(f"[{rank}] {label}")
+            return 0
+        # 페이지가 말하는 랭크와 부위별 법정 랭크가 다르면 자리번호를 잘못
+        # 맞췄다는 뜻이다. 둘 중 무거운 쪽을 쓰고 (손상을 축소하지 않도록)
+        # 어긋났다는 사실을 남긴다.
+        if own_rank and own_rank != rank:
+            out["field_notes"].setdefault("rank_mismatch", "")
+            out["field_notes"]["rank_mismatch"] += (
+                f"{raw_name}: 페이지 {rank} / 부위기준 {own_rank}  ")
+            note = (note + " · 랭크 불일치").strip(" ·")
+            if _rank_weight(own_rank) > _rank_weight(rank):
+                rank = own_rank
+        code = None
+        for word, c in _cfg.STATUS_TEXT_MAP.items():
+            if word in (stat_text or ""):
+                code = c
+                break
+        out["repairs"].append({
+            "part": canon, "raw": raw_name, "legacy": legacy or "",
+            "position": _positions(raw_name) or _positions(legacy or ""),
+            "status": code or "?", "rank": rank,
+            "status_known": bool(code), "status_text": stat_text or "",
+            "status_class": "", "source": source, "resolved_by": note,
+        })
+        prev = out["rank_sections"].get(rank) or ""
+        prev = "" if prev == "없음" else prev
+        piece = f"{raw_name} {stat_text or '판정 불가'}".strip()
+        out["rank_sections"][rank] = (prev + " / " + piece) if prev else piece
+        return 1
+
+    def _from_script_vars(sd: dict) -> int:
+        """script 변수(point / opt / lank-value 레코드)에서 수리 내역을 읽는다."""
+        records = sd.get("records") or []
+        if not records:
+            return 0
+        point = sd.get("point") or []
+        catalogs = sd.get("catalogs") or {}
+
+        # 상태가 레코드 밖의 별도 배열(stats)에 나란히 놓인 경우에 대비한다.
+        side_stats = None
+        for nm, v in (sd.get("flags") or {}).items():
+            if nm.split(".")[-1].lower() in ("stats", "stat") and \
+                    isinstance(v, list) and len(v) == len(records):
+                side_stats = v
+                break
+
+        n = 0
+        for i, rec in enumerate(records):
+            lank_raw = _pick(rec, _LANK_KEYS)
+            val = _pick(rec, _VALUE_KEYS)
+            st = _pick(rec, _STAT_KEYS)
+            if st is None and side_stats is not None:
+                st = side_stats[i]
+            suffix = re.sub(r"[^0-9A-Za-z]", "", str(lank_raw or ""))[-1:].upper()
+            rank = _cfg.LANK_SUFFIX_TO_RANK.get(suffix)
+            if rank is None:
+                continue
+
+            # --- 부위 이름 ---
+            raw_name, legacy, note = None, None, ""
+            if _has_korean(val):
+                raw_name, note = str(val).strip(), "script 값이 부위명"
+            else:
+                try:
+                    idx = int(str(val).strip())
+                except (TypeError, ValueError):
+                    idx = None
+                if idx is not None:
+                    entry, cat = _catalog_lookup(catalogs, suffix, idx)
+                    if entry:
+                        raw_name = entry.get("name")
+                        legacy = entry.get("legacy")
+                        note = f"{cat}[{idx}]"
+            if not raw_name:
+                out["unmatched_parts"].append(
+                    f"[{rank}] 자리번호 {val!r} — 부위 목록에서 못 찾음")
+                continue
+
+            # --- 상태 ---
+            stat_text = ""
+            if _has_korean(st):
+                stat_text = str(st).strip()
+            elif st is not None:
+                try:
+                    si = int(str(st).strip())
+                except (TypeError, ValueError):
+                    si = None
+                if si is not None and 0 <= si < len(point):
+                    stat_text = str(point[si])
+
+            n += _add_repair(rank, raw_name, legacy, stat_text, "script", note)
+        return n
+
     def _from_script() -> int:
         found = 0
         for sc in soup.find_all("script"):
@@ -1365,10 +1869,62 @@ def parse_inspection_page(html_text: str) -> dict:
                 n += _walk_parts(v, rank_hint)
         return n
 
-    if _from_script():
+    # script 안 변수(point / opt / lank-value) 를 먼저 읽고,
+    # 안 되면 통째로 박힌 JSON 을 훑는 예전 경로로 넘어간다.
+    try:
+        script_data = extract_page_script_data(html_text)
+    except Exception as e:                       # 파싱 실패가 전체를 막지 않게
+        script_data = {}
+        out["field_notes"]["script"] = f"script 읽기 실패: {e}"
+    out["script_summary"] = {
+        "point": script_data.get("point") or [],
+        "point_from": script_data.get("point_from") or "",
+        "catalogs": {k: len(v) for k, v in
+                     (script_data.get("catalogs") or {}).items()},
+        "records": len(script_data.get("records") or []),
+        "record_from": script_data.get("record_from") or "",
+        "record_raw": script_data.get("record_raw") or "",
+        "flags": sorted((script_data.get("flags") or {}).keys()),
+        "defs": script_data.get("defs") or [],
+    }
+
+    n_script = _from_script_vars(script_data) if script_data else 0
+    if not n_script:
+        n_script = _from_script()
+    if n_script:
         out["parse_note"] = "script 안의 데이터에서 읽음"
         for rk in _cfg.LANK_SUFFIX_TO_RANK.values():
             out["rank_sections"].setdefault(rk, "없음")
+    elif script_data.get("records"):
+        # 레코드는 찾았는데 부위를 하나도 못 맞춘 경우 — 조용히 '없음' 이
+        # 되면 안 된다. 표시해서 사람이 확인하게 한다.
+        out["parse_note"] = ("script 에서 수리 레코드는 찾았으나 부위를 "
+                             "못 맞췄습니다 (판정 불가)")
+
+    # initLankFlag 는 '어느 랭크에 수리가 있는지' 를 랭크별로 알려 준다.
+    # 우리가 읽어 낸 것과 어긋나면 조용히 넘어가지 말고 알린다.
+    # (한 건이라도 놓치면 흠결 있는 차가 무사고로 보인다)
+    flag_expect: set[str] = set()
+    for nm, v in (script_data.get("flags") or {}).items():
+        if nm.split(".")[-1].lower() not in ("initlankflag", "lankflag"):
+            continue
+        pairs = (v.items() if isinstance(v, dict)
+                 else enumerate(v) if isinstance(v, list) else [])
+        for k, on in pairs:
+            if not on:
+                continue
+            rk = _cfg.LANK_SUFFIX_TO_RANK.get(str(k).strip().upper()[-1:])
+            if rk:
+                flag_expect.add(rk)
+    if flag_expect:
+        got = {r["rank"] for r in out["repairs"]}
+        missed = sorted(flag_expect - got)
+        if missed:
+            out["field_notes"]["lank_flag"] = (
+                "initLankFlag 는 " + ", ".join(missed) +
+                " 에 수리가 있다고 하는데 부위를 못 읽었습니다 (판정 불가)")
+            for rk in missed:
+                out["rank_sections"][rk] = "판정 불가 (수리 있다고 표시됨)"
 
     # --- 2-0) 확정 DOM 구조 (ul.uiListLank* > li > strong.tit_part) ---
     # 브라우저 실측으로 확인된 구조. 여기서 읽히면 나머지 추정 경로는 쓰지 않는다.
