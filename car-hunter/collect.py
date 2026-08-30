@@ -65,90 +65,281 @@ def _describe(obj, prefix="", depth=0, out=None, max_depth=3):
     return out
 
 
+def _years_of(results: list[dict]) -> list[int]:
+    from common import parse_year_month
+    out = []
+    for r in results:
+        y, _ = parse_year_month(api.pick(r, "Year", "year", "yearMonth", "FormYear", "formYear"))
+        if y:
+            out.append(y)
+    return sorted(out)
+
+
+def _ids_of(results: list[dict]) -> list[str]:
+    return [str(api.pick(r, "Id", "id", "vehicleId", "VehicleId", "CarId") or "?")
+            for r in results]
+
+
+def _status(code) -> str:
+    if code is None:
+        return "연결실패"
+    return {200: "200 OK", 404: "404 없음"}.get(code, str(code))
+
+
 def cmd_probe(args) -> int:
-    """검색 API 를 1회만 호출해 원본 응답과 구조 요약을 남긴다."""
+    """검색/상세 API 를 실제로 두들겨 보고 무엇이 되고 무엇이 안 되는지 보고한다.
+
+    파서를 믿기 전에 이 출력을 먼저 볼 것.
+    """
     ensure_dirs()
     client = api.EncarClient(config.COLLECT)
     target = next((t for t in config.TARGETS if t["key"] == args.model), config.TARGETS[0])
-    q = args.q or api.build_query(target)
+    n = args.limit or 5
 
-    log(f"probe: {target['label']}")
-    log(f"  q = {q}")
-    payload = client.search(q, offset=0, limit=args.limit or 3)
+    print("=" * 74)
+    print(f" 엔카 API 진단  —  {target['label']}")
+    print("=" * 74)
+    if not target.get("confirmed", False):
+        warn(f"이 차종의 제조사/모델 표기('{target['manufacturer']}' / "
+             f"'{target['model_group']}' / '{target.get('model')}')는 추정값입니다. "
+             f"결과가 0건이면 --discover 로 실제 표기를 확인하세요.")
 
+    # ---------------- 1. 엔드포인트 ----------------
+    print("\n[1] 엔드포인트 확인 (연식 필터 없이 호출)")
+    usable = []
+    for name in config.USE_ENDPOINTS:
+        ep = config.ENDPOINTS[name]
+        q = args.q or api.build_query(target, ep["ad_type"], include_year=False,
+                                      include_model=bool(target.get("model")))
+        code, payload, snippet, final_url = client.raw_get(
+            ep["url"], {"count": "true", "q": q, "sr": api.build_sr(0, n, config.SORT_KEY)},
+            stage=f"search:{name}")
+        cnt = api.extract_total_count(payload) if payload else None
+        got = len(api.extract_search_results(payload)) if payload else 0
+        mark = "사용 가능" if code == 200 and got else ("응답은 되나 결과 0건" if code == 200 else "사용 불가")
+        print(f"    {name:8} AdType.{ep['ad_type']}  {_status(code):10} "
+              f"총 {cnt if cnt is not None else '-'}건, 이번 응답 {got}건   <- {mark}")
+        if code != 200 and snippet:
+            print(f"             응답 앞부분: {snippet[:120]}")
+        if code == 200 and got:
+            usable.append((name, ep, q, payload))
+
+    if not usable:
+        warn("사용 가능한 엔드포인트가 없습니다.")
+        warn("--discover 로 제조사/모델 표기를 확인하거나, 브라우저에서 복사한 "
+             "q 를 --q '<값>' 으로 직접 넣어 보세요.")
+        return 1
+
+    name, ep, q_noyear, payload_noyear = usable[0]
+    print(f"\n    -> 이후 진단은 '{name}' 엔드포인트로 진행합니다.")
+
+    # ---------------- 2. 요청 URL ----------------
+    print("\n[2] 실제 요청 URL (브라우저 주소창에 붙여넣어 대조 가능)")
+    _, _, _, url_used = client.raw_get(
+        ep["url"], {"count": "true", "q": q_noyear,
+                    "sr": api.build_sr(0, n, config.SORT_KEY)}, stage="search:url")
+    print(f"    {url_used}")
+
+    # ---------------- 3. 응답 구조 ----------------
     raw_path = os.path.join(os.path.dirname(DETAILS_JSON), "raw_probe.json")
-    write_json(raw_path, payload)
-    log(f"원본 응답 저장 → {raw_path}")
+    write_json(raw_path, payload_noyear)
+    print(f"\n[3] 응답 최상위 구조   (원본 저장: {raw_path})")
+    for line in _describe(payload_noyear, max_depth=1):
+        print("    " + line)
 
-    print("\n=== 응답 최상위 구조 ===")
-    for line in _describe(payload, max_depth=1):
-        print("  " + line)
+    results = api.extract_search_results(payload_noyear)
+    print("\n[4] 결과 1건의 전체 필드")
+    for line in _describe(results[0], max_depth=2):
+        print("    " + line)
 
-    results = api.extract_search_results(payload)
-    count = api.extract_total_count(payload)
-    print(f"\n총 매물 수(Count): {count}")
-    print(f"이번 응답 결과 건수: {len(results)}")
+    # ---------------- 5. 매핑 ----------------
+    print("\n[5] normalize_listing() 매핑 결과   (<- 표시가 있으면 파서 수정 필요)")
+    norm = api.normalize_listing(results[0], target)
+    missing = []
+    for k, v in norm.items():
+        bad = v in (None, "")
+        if bad:
+            missing.append(k)
+        print(f"    {k:>14} = {v!r}{'   <-- 매핑 실패' if bad else ''}")
+    if missing:
+        warn(f"매핑 실패 필드: {missing} — 위 [4] 목록에서 실제 키를 찾아 알려주세요.")
 
-    if results:
-        print("\n=== 결과 1건 전체 필드 ===")
-        for line in _describe(results[0], max_depth=2):
-            print("  " + line)
-        print("\n=== normalize_listing() 매핑 결과 ===")
-        norm = api.normalize_listing(results[0], target)
-        for k, v in norm.items():
-            flag = "" if v not in (None, "") else "   <-- 매핑 실패, 위 필드 목록에서 실제 키 확인 필요"
-            print(f"  {k:>14} = {v!r}{flag}")
+    # ---------------- 6. 연식 필터 ----------------
+    print("\n[6] 연식 필터가 실제로 작동하는지")
+    q_year = args.q or api.build_query(target, ep["ad_type"], include_year=True,
+                                       include_model=bool(target.get("model")))
+    code_y, payload_y, snip_y, _ = client.raw_get(
+        ep["url"], {"count": "true", "q": q_year,
+                    "sr": api.build_sr(0, n, config.SORT_KEY)}, stage="search:year")
+    cnt_no = api.extract_total_count(payload_noyear)
+    res_no = api.extract_search_results(payload_noyear)
+    yrs_no = _years_of(res_no)
+    print(f"    필터 없이 : {_status(code_y and 200)} 총 {cnt_no}건, "
+          f"이번 응답 연식 {min(yrs_no) if yrs_no else '-'}~{max(yrs_no) if yrs_no else '-'}")
 
-        vid = norm.get("vehicle_id")
-        if vid and not args.no_detail:
-            print(f"\n=== 상세 API probe (vehicleId={vid}) ===")
-            d = client.detail(vid)
-            write_json(os.path.join(os.path.dirname(DETAILS_JSON), "raw_probe_detail.json"), d)
-            if d is None:
-                warn("상세 응답이 404 입니다. DETAIL_URL 형식을 확인하세요.")
-            else:
-                for line in _describe(d, max_depth=2)[:120]:
-                    print("  " + line)
-                plate = api.pick(d, "vehicleNo", "VehicleNo", "carNo", "CarNo")
-                print(f"\n  차량번호 추출: {plate!r}")
-                if not plate:
-                    warn("차량번호를 못 찾았습니다. 위 목록에서 실제 키를 찾아 "
-                         "encar_api.normalize_detail() 의 pick() 후보에 추가하세요.")
+    if code_y != 200 or payload_y is None:
+        print(f"    필터 적용 : {_status(code_y)}  <-- 연식 필터 문법이 거부되었습니다")
+        if snip_y:
+            print(f"                응답 앞부분: {snip_y[:160]}")
+        warn("Year.range(...) 문법이 안 먹습니다. 연식은 수집 후 코드에서 걸러야 합니다 "
+             "(matches_target() 이 이미 그 역할을 합니다).")
     else:
-        warn("결과가 비었습니다. --discover 로 제조사/모델 표기를 확인하세요.")
+        cnt_y = api.extract_total_count(payload_y)
+        res_y = api.extract_search_results(payload_y)
+        yrs_y = _years_of(res_y)
+        print(f"    필터 적용 : 200 OK 총 {cnt_y}건, "
+              f"이번 응답 연식 {min(yrs_y) if yrs_y else '-'}~{max(yrs_y) if yrs_y else '-'}")
+        want = f"{target['year_from']}~{target['year_to']}"
+        out_of_range = [y for y in yrs_y if not (target["year_from"] <= y <= target["year_to"])]
+        if out_of_range:
+            print(f"    -> 범위({want}) 밖 매물이 {len(out_of_range)}건 섞여 있습니다: "
+                  f"{sorted(set(out_of_range))}")
+            warn("연식 필터가 무시되고 있습니다. 수집 후 코드에서 거릅니다.")
+        elif cnt_y == cnt_no and yrs_no and (min(yrs_no) < target["year_from"]
+                                             or max(yrs_no) > target["year_to"]):
+            warn("총 건수가 필터 없을 때와 같습니다. 필터가 무시될 가능성이 있습니다.")
+        else:
+            print(f"    -> 연식 필터 작동 확인 ({want} 범위 내, "
+                  f"총건수 {cnt_no} -> {cnt_y}건으로 감소)")
+
+    # ---------------- 7. 페이징 ----------------
+    print("\n[7] 페이징(sr 파라미터)이 실제로 작동하는지")
+    q_page = q_year if (code_y == 200 and payload_y) else q_noyear
+    page_size = max(2, min(n, 5))
+    pages = {}
+    for off in (0, page_size):
+        code_p, payload_p, _, _ = client.raw_get(
+            ep["url"], {"count": "true", "q": q_page,
+                        "sr": api.build_sr(off, page_size, config.SORT_KEY)},
+            stage=f"search:page{off}")
+        ids = _ids_of(api.extract_search_results(payload_p)) if payload_p else []
+        pages[off] = ids
+        print(f"    sr=|{config.SORT_KEY}|{off}|{page_size}  ->  {len(ids)}건  {ids}")
+
+    a, b = pages.get(0, []), pages.get(page_size, [])
+    overlap = set(a) & set(b)
+    if not a:
+        warn("첫 페이지가 비어 페이징을 판정할 수 없습니다.")
+    elif not b:
+        print("    -> 2페이지가 비었습니다. 전체 매물이 1페이지 분량이거나 "
+              "오프셋이 범위를 넘었습니다.")
+    elif overlap:
+        warn(f"두 페이지가 {len(overlap)}건 겹칩니다 — 페이징이 안 먹는 것으로 보입니다.")
+    else:
+        print("    -> 페이징 작동 확인 (두 페이지 중복 0건)")
+
+    # ---------------- 8. 상세 API ----------------
+    vid = norm.get("vehicle_id")
+    if not vid:
+        warn("매물 ID 를 못 찾아 상세 API 를 시험하지 못했습니다.")
+        return 0
+
+    print(f"\n[8] 상세 API 시험 호출  (매물 ID = {vid})")
+    detail_probes = [
+        ("상세(차량번호/옵션)", api.DETAIL_URL.format(vid=vid), {"include": api.DETAIL_INCLUDE}),
+        ("사고이력(record)", api.RECORD_URL.format(vid=vid), None),
+        ("성능점검(inspection)", api.INSPECT_URL.format(vid=vid), None),
+        ("엔카진단(diagnosis)", api.DIAGNOSIS_URL.format(vid=vid), None),
+    ]
+    got = {}
+    for label, url, params in detail_probes:
+        code_d, payload_d, snip_d, _ = client.raw_get(url, params, stage=f"detail:{label}")
+        got[label] = payload_d
+        note = ""
+        if code_d == 200 and payload_d is not None:
+            note = f"필드 {len(payload_d) if isinstance(payload_d, dict) else '-'}개"
+        elif code_d == 404:
+            note = "경로가 다르거나 이 매물엔 해당 정보 없음"
+        elif snip_d:
+            note = snip_d[:80]
+        print(f"    {label:22} {_status(code_d):10} {note}")
+
+    detail = got.get("상세(차량번호/옵션)")
+    if detail:
+        write_json(os.path.join(os.path.dirname(DETAILS_JSON), "raw_probe_detail.json"), detail)
+        print("\n    -- 상세 응답 구조 --")
+        for line in _describe(detail, max_depth=2)[:60]:
+            print("      " + line)
+        plate = api.pick(detail, "vehicleNo", "VehicleNo", "carNo", "CarNo",
+                         "vehicle.vehicleNo", "manage.vehicleNo")
+        print(f"\n    차량번호 추출: {plate!r}")
+        if not plate:
+            warn("차량번호를 못 찾았습니다. 위 구조에서 번호판이 담긴 키를 찾아 알려주세요.")
+        nd = api.normalize_detail(vid, detail, got.get("사고이력(record)"),
+                                  got.get("성능점검(inspection)"),
+                                  got.get("엔카진단(diagnosis)"), target)
+        print(f"    옵션 {nd['options_count']}개 추출: {nd['options'][:120]}")
+        print(f"    무사고={nd['accident_free']} 엔카진단={nd['encar_diagnosed']} "
+              f"에어서스키워드={nd['airsus_keyword_hits'] or '없음'}")
+    else:
+        warn("상세 응답을 못 받아 차량번호/옵션을 확인하지 못했습니다.")
+
+    print("\n" + "=" * 74)
+    print(" 진단 끝. '<--' 표시나 경고가 있으면 그 줄을 그대로 복사해서 알려주세요.")
+    print("=" * 74)
     return 0
 
 
 def cmd_discover(args) -> int:
-    """facet(제조사/모델 집합)을 덤프해 쿼리 문자열을 교정할 수 있게 한다."""
+    """제조사 → 모델그룹 → 모델 순으로 엔카의 '실제 표기' 를 확인한다."""
     ensure_dirs()
     client = api.EncarClient(config.COLLECT)
-    # 전기차 전체를 넓게 조회해서 facet 만 본다
-    q = args.q or "(And.Hybrid.N._.(C.CarType.Y._.FuelType.전기.))"
-    log(f"discover q = {q}")
-    payload = client.search(q, offset=0, limit=1)
-    write_json(os.path.join(os.path.dirname(DETAILS_JSON), "raw_discover.json"), payload)
+    ep = config.ENDPOINTS[config.USE_ENDPOINTS[0]]
+    ctype = args.car_type or "N"
 
-    if not isinstance(payload, dict):
-        warn("dict 응답이 아닙니다.")
+    if args.q:
+        q = args.q
+        level = "직접 지정한 쿼리"
+    elif args.mfr and args.mg:
+        q = (f"(And.(And.Hidden.N._.MultiViewHidden.N._."
+             f"(C.CarType.{ctype}._.(C.Manufacturer.{args.mfr}._.ModelGroup.{args.mg}.)))"
+             f"_.(Or.AdType.{ep['ad_type']}._.MultiViewAdType.{ep['ad_type']}.))")
+        level = f"{args.mfr} > {args.mg} 의 하위 모델"
+    elif args.mfr:
+        q = (f"(And.(And.Hidden.N._.MultiViewHidden.N._."
+             f"(C.CarType.{ctype}._.Manufacturer.{args.mfr}.))"
+             f"_.(Or.AdType.{ep['ad_type']}._.MultiViewAdType.{ep['ad_type']}.))")
+        level = f"{args.mfr} 의 모델그룹"
+    else:
+        q = (f"(And.(And.Hidden.N._.MultiViewHidden.N._.CarType.{ctype}.)"
+             f"_.(Or.AdType.{ep['ad_type']}._.MultiViewAdType.{ep['ad_type']}.))")
+        level = f"CarType.{ctype} 의 제조사"
+
+    print("=" * 74)
+    print(f" 엔카 표기 확인 — {level}")
+    print("=" * 74)
+    print(f"  q = {q}")
+
+    code, payload, snippet, url = client.raw_get(
+        ep["url"], {"count": "true", "q": q, "sr": api.build_sr(0, 1, config.SORT_KEY)},
+        stage="discover")
+    print(f"  {_status(code)}   총 {api.extract_total_count(payload)}건")
+    if code != 200 or payload is None:
+        warn(f"조회 실패. 응답 앞부분: {snippet[:200] if snippet else '-'}")
+        warn("CarType 값이 다를 수 있습니다. --car-type Y 로도 시도해 보세요.")
         return 1
+
+    write_json(os.path.join(os.path.dirname(DETAILS_JSON), "raw_discover.json"), payload)
 
     printed = False
     for key, val in payload.items():
         if not isinstance(val, list) or not val or not isinstance(val[0], dict):
             continue
-        if "Set" not in key and "set" not in key:
+        if "set" not in key.lower():
             continue
         printed = True
-        print(f"\n=== {key} ===")
-        for item in val[:80]:
-            name = api.pick(item, "Value", "value", "Name", "name", "Code", "code")
+        print(f"\n  === {key} ===")
+        for item in val[:100]:
+            nm = api.pick(item, "Value", "value", "Name", "name", "Code", "code")
             cnt = api.pick(item, "Count", "count")
-            print(f"  {name}  ({cnt})")
+            print(f"    {str(nm):30} {cnt if cnt is not None else ''}")
+
     if not printed:
-        print("facet 집합을 못 찾았습니다. 최상위 키 목록:")
+        print("\n  facet 목록을 못 찾았습니다. 응답 최상위 키:")
         for line in _describe(payload, max_depth=1):
-            print("  " + line)
+            print("    " + line)
+    else:
+        print("\n  위 목록에서 원하는 표기를 골라 config.py 의 TARGETS 에 넣으면 됩니다.")
     return 0
 
 
@@ -188,37 +379,73 @@ def _unreachable_msg(e, collected: int | None = None) -> str:
 # ---------------------------------------------------------------------------
 def collect_target(client, target: dict, limit: int, with_detail: bool,
                    details_sink: dict) -> list[dict]:
-    q = api.build_query(target)
+    """한 차종을 수집한다.
+
+    /premium 과 /general 은 서로 다른 광고 상품의 매물을 돌려주므로
+    둘 다 훑어서 vehicle_id 로 중복을 제거해야 시세 표본이 한쪽으로
+    치우치지 않는다. 404 가 나는 엔드포인트는 건너뛴다.
+    """
     log(f"[{target['label']}] 검색 시작")
-    log(f"  q = {q}")
+    if not target.get("confirmed", False):
+        warn(f"  제조사/모델 표기가 추정값입니다 "
+             f"({target['manufacturer']} / {target['model_group']} / {target.get('model')}). "
+             f"0건이면 `--discover --mfr {target['manufacturer']}` 로 확인하세요.")
 
     rows: list[dict] = []
-    offset, page_size = 0, 20
-    total = None
+    seen: set[str] = set()
 
-    while len(rows) < limit:
-        payload = client.search(q, offset=offset, limit=min(page_size, limit - len(rows)))
-        if total is None:
-            total = api.extract_total_count(payload)
-            log(f"  엔카 검색 결과 총 {total}건")
-        results = api.extract_search_results(payload)
-        if not results:
+    for ep_name in config.USE_ENDPOINTS:
+        if len(rows) >= limit:
             break
+        ep = config.ENDPOINTS[ep_name]
+        q = api.build_query(target, ep["ad_type"], include_year=True,
+                            include_model=bool(target.get("model")))
+        log(f"  [{ep_name}] q = {q}")
 
-        for raw in results:
-            listing = api.normalize_listing(raw, target)
-            if not listing.get("vehicle_id"):
-                continue
-            if not api.matches_target(listing, target):
-                continue
-            rows.append(listing)
-            details_sink.setdefault(listing["vehicle_id"], {})["search"] = raw
+        offset, page_size, total = 0, 20, None
+        while len(rows) < limit:
+            try:
+                payload = client.search(q, ep["url"], offset=offset,
+                                        limit=min(page_size, limit - len(rows)),
+                                        sort=config.SORT_KEY, stage=f"search:{ep_name}")
+            except RuntimeError as e:
+                # 404 등 이 엔드포인트만의 문제면 다음 엔드포인트로 넘어간다
+                if isinstance(e, (api.EncarBlocked, api.EncarUnreachable)):
+                    raise
+                warn(f"  [{ep_name}] 사용 불가 — 건너뜁니다 ({e})")
+                break
 
-        offset += len(results)
-        if total is not None and offset >= total:
-            break
+            if total is None:
+                total = api.extract_total_count(payload)
+                log(f"  [{ep_name}] 엔카 검색 결과 총 {total}건")
+            results = api.extract_search_results(payload)
+            if not results:
+                break
 
-    log(f"  조건 부합 {len(rows)}건 (연식 {target['year_from']}~{target['year_to']}, 트림 필터 적용)")
+            added = 0
+            for raw in results:
+                listing = api.normalize_listing(raw, target)
+                vid = listing.get("vehicle_id")
+                if not vid or vid in seen:
+                    continue
+                if not api.matches_target(listing, target):
+                    continue
+                seen.add(vid)
+                rows.append(listing)
+                details_sink.setdefault(vid, {})["search"] = raw
+                added += 1
+
+            offset += len(results)
+            if total is not None and offset >= total:
+                break
+        log(f"  [{ep_name}] 누적 {len(rows)}건")
+
+    log(f"  조건 부합 {len(rows)}건 "
+        f"(연식 {target['year_from']}~{target['year_to']}, 트림 필터 적용, 중복 제거)")
+
+    if not rows:
+        warn("  0건입니다. `python collect.py --probe` 로 원인을 확인하세요.")
+        return rows
 
     if not with_detail:
         return rows
@@ -344,6 +571,10 @@ def main() -> int:
     p.add_argument("--limit", type=int, help="모델당 최대 건수")
     p.add_argument("--no-detail", action="store_true", help="상세 API 생략")
     p.add_argument("--q", help="검색 q 파라미터 직접 지정 (브라우저에서 복사한 값)")
+    p.add_argument("--mfr", help="--discover 전용: 이 제조사의 모델그룹을 조회")
+    p.add_argument("--mg", help="--discover 전용: 이 모델그룹의 하위 모델을 조회")
+    p.add_argument("--car-type", dest="car_type",
+                   help="--discover 전용: CarType 값 (기본 N = 확인된 수입차 값)")
     args = p.parse_args()
 
     try:

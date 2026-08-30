@@ -20,7 +20,7 @@ import requests
 
 from common import log, warn, to_int
 
-SEARCH_URL = "https://api.encar.com/search/car/list/general"
+# 검색 URL 은 config.ENDPOINTS 에서 가져온다 (premium / general).
 DETAIL_URL = "https://api.encar.com/v1/readside/vehicle/{vid}"
 RECORD_URL = "https://api.encar.com/v1/readside/record/vehicle/{vid}/open"
 INSPECT_URL = "https://api.encar.com/v1/readside/inspection/vehicle/{vid}"
@@ -134,25 +134,64 @@ def haystack(*objs: Any) -> str:
 # ---------------------------------------------------------------------------
 # 쿼리 빌더
 # ---------------------------------------------------------------------------
-def build_query(target: dict) -> str:
+# 실제 엔카 요청에서 확인된 구조 (2026-08, 브라우저 개발자도구):
+#
+#   (And.
+#     (And.Hidden.N._.MultiViewHidden.N._.
+#       (C.CarType.N._.
+#         (C.Manufacturer.BMW._.ModelGroup.iX.)))
+#     _.(Or.AdType.B._.MultiViewAdType.B.))
+#
+# 즉 바깥 And 가 [검색조건] 과 [광고타입] 을 묶고, 검색조건 안에서
+# Hidden/MultiViewHidden 으로 숨김 매물을 제외한 뒤 CarType → Manufacturer
+# → ModelGroup 순으로 한 단계씩 (C. ... ) 로 감싸 내려간다.
+
+
+def build_car_segment(target: dict, include_model: bool = True) -> str:
+    """CarType → Manufacturer → ModelGroup [→ Model] 부분을 만든다."""
+    ctype = target.get("car_type", "N")
+    mfr = target["manufacturer"]
+    mg = target["model_group"]
+    model = target.get("model") if include_model else None
+
+    if model:
+        # 한 단계 더 내려갈 때는 ModelGroup 도 (C. ... ) 로 감싼다
+        inner = f"(C.ModelGroup.{mg}._.Model.{model}.)"
+        mfr_part = f"(C.Manufacturer.{mfr}._.{inner})"
+    else:
+        mfr_part = f"(C.Manufacturer.{mfr}._.ModelGroup.{mg}.)"
+
+    return f"(C.CarType.{ctype}._.{mfr_part})"
+
+
+def build_query(target: dict, ad_type: str = "B", include_year: bool = True,
+                include_model: bool = True) -> str:
     """엔카 검색 q 파라미터 생성.
 
-    브라우저 개발자도구에서 복사한 q 를 그대로 쓰고 싶으면
-    target["raw_q"] 에 넣으면 이 함수를 건너뛴다.
+    브라우저에서 복사한 q 를 그대로 쓰려면 target["raw_q"] 에 넣으면 된다.
+
+    include_year=False 로 부르면 연식 필터를 뺀 쿼리가 나온다.
+    --probe 가 '연식 필터가 실제로 먹는지' 를 두 쿼리의 결과를 비교해
+    판정하는 데 쓴다.
     """
     if target.get("raw_q"):
         return target["raw_q"]
 
-    y_from = f"{target['year_from']}00"
-    y_to = f"{target['year_to']}12"
-    mf = target["manufacturer"]
-    mg = target["model_group"]
-    md = target.get("model") or mg
+    conds = ["Hidden.N", "MultiViewHidden.N"]
+    if include_year:
+        # 연식은 yyyyMM 6자리 범위로 지정한다 (추정 — probe 로 검증됨)
+        conds.append(f"Year.range({target['year_from']}00..{target['year_to']}12)")
 
-    return (
-        "(And.Hybrid.N._.Year.range({yf}..{yt})._."
-        "(C.CarType.Y._.(C.Manufacturer.{mf}._.(C.ModelGroup.{mg}._.Model.{md}.))))"
-    ).format(yf=y_from, yt=y_to, mf=mf, mg=mg, md=md)
+    cond_str = "._.".join(conds)
+    car_seg = build_car_segment(target, include_model=include_model)
+    search_part = f"(And.{cond_str}._.{car_seg})"
+    ad_part = f"(Or.AdType.{ad_type}._.MultiViewAdType.{ad_type}.)"
+    return f"(And.{search_part}_.{ad_part})"
+
+
+def build_sr(offset: int = 0, limit: int = 20, sort: str = "ModifiedDate") -> str:
+    """정렬/페이징 파라미터.  형식: |정렬키|오프셋|개수"""
+    return f"|{sort}|{offset}|{limit}"
 
 
 # ---------------------------------------------------------------------------
@@ -255,9 +294,46 @@ class EncarClient:
         raise RuntimeError(f"[{stage}] 실패: {last_err}")
 
     # --- 개별 엔드포인트 -------------------------------------------------
-    def search(self, q: str, offset: int = 0, limit: int = 20, sort: str = "ModifiedDate"):
-        params = {"count": "true", "q": q, "sr": f"|{sort}|{offset}|{limit}"}
-        return self.get_json(SEARCH_URL, params, stage="search")
+    def search(self, q: str, url: str, offset: int = 0, limit: int = 20,
+               sort: str = "ModifiedDate", stage: str = "search"):
+        params = {"count": "true", "q": q, "sr": build_sr(offset, limit, sort)}
+        return self.get_json(url, params, stage=stage)
+
+    def raw_get(self, url: str, params: dict | None = None, stage: str = "probe"):
+        """probe 전용: 상태코드를 예외 없이 그대로 돌려준다.
+
+        차단(EncarBlocked)과 도달 불가(EncarUnreachable)는 그대로 올린다 —
+        진단 중이라도 이 둘은 즉시 멈춰야 하기 때문이다.
+        반환: (status_code, payload_or_None, 본문 앞부분, 최종 URL)
+        """
+        self._throttle()
+        try:
+            r = self.s.get(url, params=params, timeout=self.timeout)
+        except requests.RequestException as e:
+            if _is_unreachable(e):
+                raise EncarUnreachable(
+                    stage,
+                    "엔카 서버에 연결하지 못했습니다. 엔카의 차단이 아니라 "
+                    "네트워크 경로 문제입니다 (프록시 정책 거부 / 방화벽 / DNS / 오프라인).\n"
+                    f"  원인: {e.__class__.__name__}: {str(e)[:200]}",
+                ) from e
+            return None, None, f"{e.__class__.__name__}: {e}", url
+
+        body = r.text or ""
+        if r.status_code in (401, 403, 405, 429):
+            raise EncarBlocked(stage, "차단으로 보이는 응답입니다. 즉시 중단합니다.",
+                               r.status_code)
+        if any(mk in body[:4000].lower() for mk in BLOCK_MARKERS):
+            raise EncarBlocked(stage, "응답 본문에 캡차/차단 문구가 감지되었습니다.",
+                               r.status_code)
+
+        payload = None
+        if r.status_code == 200:
+            try:
+                payload = r.json()
+            except ValueError:
+                payload = None
+        return r.status_code, payload, body[:300], r.url
 
     def detail(self, vid: str):
         return self.get_json(

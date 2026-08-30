@@ -33,21 +33,51 @@ merge.py    ─→  data/merged.csv  , report.html (최종)
 
 ## 1단계 — 수집 (`collect.py`)
 
-**파서를 믿기 전에 실제 응답부터 확인할 것.** 엔카는 내부 API 스키마를
-예고 없이 바꾸므로, 아래 두 명령으로 먼저 실제 구조를 눈으로 확인한다.
+**파서를 믿기 전에 실제 응답부터 확인할 것.**
 
 ```bash
-# 검색 API 1회 호출 → 응답 구조 + 필드 매핑 결과를 출력하고
-# 원본을 data/raw_probe.json 에 저장
 python collect.py --probe
-
-# 제조사/모델 facet 값을 덤프 (쿼리의 '비엠더블유', 'iX' 같은 표기 교정용)
-python collect.py --discover
 ```
 
-`--probe` 출력에서 `<-- 매핑 실패` 표시가 뜨는 필드가 있으면, 위에 나온
-실제 키 이름을 `encar_api.py` 의 `pick(...)` 후보 목록에 추가하면 된다.
-브라우저 개발자도구에서 복사한 쿼리를 그대로 쓰려면 `--q '<q값>'`.
+`--probe` 는 8가지를 실제로 두들겨 보고 결과를 보고한다:
+
+1. `/premium` · `/general` 중 어느 엔드포인트가 살아 있는지
+2. 실제 요청 URL (브라우저 주소창에 붙여넣어 대조 가능)
+3. 응답 최상위 구조
+4. 결과 1건의 전체 필드
+5. 필드 매핑 결과 — 실패한 필드에 `<-- 매핑 실패` 표시
+6. **연식 필터가 실제로 먹는지** (필터 유/무 총건수와 반환 연식 범위를 비교)
+7. **페이징이 실제로 먹는지** (1·2페이지 ID 중복 여부)
+8. 첫 매물의 **상세 API 4종** (차량번호/옵션, 사고이력, 성능점검, 엔카진단)
+
+### 제조사·모델 표기 확인
+
+엔카 내부 표기는 브랜드마다 다르다 (BMW 는 `BMW`, 벤츠는 한글일 가능성).
+결과가 0건이면 아래로 실제 표기를 확인한다:
+
+```bash
+python collect.py --discover                    # 제조사 목록
+python collect.py --discover --mfr 벤츠          # 그 제조사의 모델그룹
+python collect.py --discover --mfr 벤츠 --mg EQE  # 하위 모델
+```
+
+확인한 값을 `config.py` 의 `TARGETS` 에 넣으면 된다.
+브라우저에서 복사한 q 를 그대로 쓰려면 `--q '<q값>'`.
+
+### 검색 쿼리 구조 (2026-08 실측)
+
+```
+(And.
+  (And.Hidden.N._.MultiViewHidden.N._.Year.range(202200..202412)._.
+    (C.CarType.N._.
+      (C.Manufacturer.BMW._.ModelGroup.iX.)))
+  _.(Or.AdType.B._.MultiViewAdType.B.))
+```
+
+`sr` 은 `|정렬키|오프셋|개수` 형식 (`|ModifiedDate|0|20`).
+`/premium` 은 `AdType.B`, `/general` 은 `AdType.A` 매물을 돌려주므로
+기본값은 **둘 다 수집해 `vehicle_id` 로 중복 제거**한다. 한쪽만 쓰면
+시세 회귀 표본이 광고 상품 쪽으로 치우친다.
 
 확인이 끝나면 본 수집:
 
@@ -84,6 +114,9 @@ python collect.py --no-detail    # 검색 결과만 (빠른 점검, 차량번호
 python samples/make_fixture.py       # 합성 샘플 생성
 python collect.py --fixture samples/ # 2·3단계 파이프라인 점검용
 ```
+
+`--probe` / `--discover` 자체를 점검하려면 엔카 응답을 흉내내는 로컬
+가짜 서버를 띄울 수 있다 (`samples/fake_encar_server.py`).
 
 ---
 

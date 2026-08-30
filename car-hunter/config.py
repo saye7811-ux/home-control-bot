@@ -25,23 +25,54 @@ COLLECT = {
 }
 
 # ---------------------------------------------------------------------------
+# 엔카 검색 엔드포인트
+# ---------------------------------------------------------------------------
+# 2026-08 브라우저 개발자도구에서 실제 확인된 경로는 /premium 이다.
+# /premium 은 AdType.B (프리미엄 광고 상품) 매물만, /general 은 AdType.A
+# 매물만 돌려주는 것으로 보인다. 시세 회귀가 한쪽에 치우치지 않도록
+# 기본값은 둘 다 수집해 vehicle_id 로 중복 제거한다.
+ENDPOINTS = {
+    "premium": {
+        "url": "https://api.encar.com/search/car/list/premium",
+        "ad_type": "B",
+        "confirmed": True,   # 실제 요청에서 확인됨
+    },
+    "general": {
+        "url": "https://api.encar.com/search/car/list/general",
+        "ad_type": "A",
+        "confirmed": False,  # 미확인 — probe 로 확인할 것
+    },
+}
+# 수집에 사용할 엔드포인트 순서. 404 가 나는 것은 자동으로 건너뛴다.
+USE_ENDPOINTS = ["premium", "general"]
+
+# 정렬 키 (sr 파라미터의 첫 칸). ModifiedDate = 최신 수정순.
+SORT_KEY = "ModifiedDate"
+
+# ---------------------------------------------------------------------------
 # 대상 차종
 # ---------------------------------------------------------------------------
-# manufacturer / model_group / model 문자열은 엔카 내부 표기를 그대로 써야 한다.
-# 정확한 값을 모르면 `python collect.py --discover` 로 실제 facet 값을 덤프해서
-# 확인한 뒤 이 값을 고칠 것.
+# manufacturer / model_group / model 은 엔카 내부 표기를 '그대로' 써야 한다.
+# confirmed=True 는 실제 요청에서 확인된 값, False 는 추정값이다.
+# 추정값으로 결과가 0건이면 아래로 실제 표기를 확인해서 고칠 것:
+#     python collect.py --discover                  # 제조사 목록
+#     python collect.py --discover --mfr 벤츠        # 그 제조사의 모델그룹 목록
+#     python collect.py --discover --mfr 벤츠 --mg EQE   # 하위 모델 목록
 TARGETS = [
     {
         "key": "ix_xdrive50",
         "label": "BMW iX xDrive50",
-        "manufacturer": "비엠더블유",
+        # CarType.N — 브라우저 확인값 (BMW=수입차가 N 으로 나감)
+        "car_type": "N",
+        "manufacturer": "BMW",
         "model_group": "iX",
-        "model": "iX",
-        # 상세 트림(Badge)에 아래 문자열 중 하나가 들어가야 최종 채택
+        "model": None,          # 확인된 요청은 ModelGroup 까지만 내려간다
+        "confirmed": True,
+        # 상세 트림(Badge)에 아래 문자열 중 하나가 들어가야 최종 채택.
+        # ModelGroup 만으로는 xDrive40 / M60 이 섞여 들어오므로 필수.
         "badge_contains": ["xDrive50", "xDrive 50", "xdrive50"],
         "year_from": 2022,
         "year_to": 2024,
-        # 2단계 옵션 키워드 가점용 (에어서스펜션 관련)
         "airsus_keywords": [
             "에어서스", "에어 서스", "에어서스펜션",
             "다이나믹 핸들링", "다이내믹 핸들링",
@@ -51,9 +82,13 @@ TARGETS = [
     {
         "key": "eqe_suv_350",
         "label": "벤츠 EQE SUV 350 4MATIC",
+        "car_type": "N",
+        # ↓ 추정값. BMW 가 'BMW' 로 나가는 걸 보면 브랜드 표기를 그대로 쓰는
+        #   방식이라 벤츠는 '벤츠' 일 가능성이 높지만 확인되지 않았다.
         "manufacturer": "벤츠",
         "model_group": "EQE",
         "model": "EQE SUV",
+        "confirmed": False,
         "badge_contains": ["350 4MATIC", "350 4매틱", "350 4마틱", "EQE SUV 350"],
         "year_from": 2023,
         "year_to": 2024,
