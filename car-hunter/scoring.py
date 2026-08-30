@@ -30,71 +30,216 @@ def _clamp(v: float, lo: float, hi: float) -> float:
 # ---------------------------------------------------------------------------
 @dataclass
 class MarketModel:
+    """시세선.
+
+    트림이 섞이면 절대금액 회귀는 못 쓴다. iX 는 xDrive40(신차가 1.1억)
+    부터 M70(1.9억)까지 있어서, 같은 연식·주행거리라도 트림에 따라 가격이
+    두 배 가까이 벌어진다. 그 상태로 가격을 직접 회귀하면 '트림이 비싸다'
+    를 '저평가다' 로 읽는다.
+
+    그래서 기본은 **잔존율 회귀**다. 가격이 아니라 가격/신차가 를 회귀한다.
+
+        잔존율 = a + b×경과연수 + c×(주행거리/1000)
+        적정가 기준선 = 잔존율 × 그 매물의 신차가
+
+    이러면 트림 차이는 신차가가 흡수하고, 회귀는 '얼마나 감가했는가' 만
+    본다. 표본을 트림별로 쪼갤 필요가 없어 희소 트림도 살릴 수 있다.
+    잔차도 % 단위라 비싼 트림과 싼 트림을 같은 자로 잴 수 있다.
+
+    신차가가 없는 매물이 많으면 예전처럼 절대금액 회귀로 물러난다.
+    """
     key: str
     label: str
     n: int
-    method: str                 # "regression" | "median"
+    method: str                 # "ratio" | "absolute" | "median"
     intercept: float = 0.0
-    coef_age: float = 0.0       # 만원 / 년
-    coef_km: float = 0.0        # 만원 / 1000km
+    coef_age: float = 0.0       # ratio: 잔존율/년,    absolute: 만원/년
+    coef_km: float = 0.0        # ratio: 잔존율/1000km, absolute: 만원/1000km
     median_price: float = 0.0
+    median_ratio: float = 0.0
     r2: float = float("nan")
-    resid_std: float = float("nan")
+    resid_std: float = float("nan")     # ratio 면 잔존율 단위, absolute 면 만원
     price_min: float = 0.0
     price_max: float = 0.0
+    origin_min: float = 0.0
+    origin_max: float = 0.0
     low_confidence: bool = True
     basis: str = "전체"            # "무사고" | "전체"
     n_clean: int = 0               # 무사고 표본 수
     accident_scale: float = 1.0    # 사고 할인에 곱할 비율
+    n_dropped: int = 0             # 이상치로 빼고 적합한 표본 수
+    dropped_note: str = ""         # 무엇을 뺐는지 (사람이 읽는 설명)
+    n_lease: int = 0               # 표본에 섞인 리스·렌트 매물 수
 
-    def predict(self, age: float | None, km: int | None) -> float | None:
+    def predict(self, age: float | None, km: int | None,
+                origin: float | None = None) -> float | None:
+        """이 매물의 기준 시세(만원). ratio 모드는 신차가가 있어야 한다."""
         if self.method == "median":
+            if self.median_ratio and origin:
+                return self.median_ratio * origin
             return self.median_price or None
         if age is None or km is None:
             return None
-        return self.intercept + self.coef_age * age + self.coef_km * (km / 1000.0)
+        val = self.intercept + self.coef_age * age + self.coef_km * (km / 1000.0)
+        if self.method == "ratio":
+            if not origin:
+                return None          # 신차가 없으면 추측하지 않는다
+            return val * origin
+        return val
+
+    def sigma_manwon(self, origin: float | None = None) -> float | None:
+        """이 매물에서 '시세선의 불확실성' 이 몇 만원인가.
+
+        저평가 폭을 이 값으로 나눈 것이 σ 다. 절대금액만 보면 비싼 차가
+        항상 위로 온다 — 2억짜리의 ±5% 는 1,000만원이고 5천짜리의 ±5% 는
+        250만원이기 때문이다. σ 로 보면 둘을 같은 자로 잴 수 있다.
+        """
+        if not math.isfinite(self.resid_std):
+            return None
+        if self.method == "ratio":
+            return (self.resid_std * origin) if origin else None
+        return self.resid_std
 
 
-def fit_market(rows: list[dict], key: str, label: str) -> MarketModel:
-    """가격 ~ (경과연수, 주행거리) 최소제곱 회귀."""
-    pts = []
-    for r in rows:
-        p = to_float(r.get("price_manwon"))
-        a = to_float(r.get("age_years"))
-        km = to_int(r.get("mileage_km"))
-        if p and a is not None and km is not None and p > 0:
-            pts.append((a, km / 1000.0, p))
+def is_lease_listing(row: dict) -> bool:
+    """리스·렌트 승계 매물인가.
 
-    prices = [p for _, _, p in pts]
-    median = float(np.median(prices)) if prices else 0.0
-    base = dict(key=key, label=label, n=len(pts), median_price=median,
-                price_min=min(prices) if prices else 0.0,
-                price_max=max(prices) if prices else 0.0)
+    표시 가격이 차값이 아니라 인수금이라 '살 대상' 으로는 같은 자로
+    잴 수 없다. 그래서 순위에서는 빼고 시세 표본으로만 쓴다.
+    """
+    sell = str(row.get("sell_type") or "")
+    if any(bad in sell for bad in getattr(config, "RANK_EXCLUDE_SELL_TYPES", [])):
+        return True
+    return _truthy(row.get("rental_or_commercial"))
 
-    # 표본이 적으면 회귀선이 과적합된다. 중앙값 기준으로 후퇴.
-    if len(pts) < 5:
-        return MarketModel(method="median", low_confidence=True, **base)
 
-    X = np.array([[1.0, a, k] for a, k, _ in pts])
-    y = np.array(prices)
+def _lstsq_with_outlier_drop(X, y, max_drop_frac: float = 0.10):
+    """최소제곱 적합 + 이상치 제외 1회.
 
-    # 설계행렬이 rank deficient 면(연식·주행거리가 사실상 상수) 회귀 불가
-    if np.linalg.matrix_rank(X) < 3:
-        return MarketModel(method="median", low_confidence=True, **base)
+    표본 하나가 회귀선을 통째로 끌고 갈 수 있다. 실제로 BMW iX 13대 중
+    17.3만km 짜리 한 대를 빼자 다른 매물의 예측가가 387만원 움직였다.
+    그 한 대 때문에 생긴 차이를 '저평가' 로 읽으면 안 된다.
 
+    그래서 Cook 거리로 영향력이 큰 점을 한 번 걸러내고 다시 적합한다.
+    기준은 통상 쓰는 4/n 이고, 아무리 많아도 표본의 10% 까지만 뺀다
+    (많이 빼면 그건 이상치가 아니라 그냥 분포다).
+
+    돌려주는 것: (beta, resid_std, r2, 남은표본수, 뺀 인덱스들)
+    """
+    n, p = X.shape
     beta, *_ = np.linalg.lstsq(X, y, rcond=None)
-    pred = X @ beta
-    resid = y - pred
+    resid = y - X @ beta
+    dof = max(n - p, 1)
+    mse = float(np.sum(resid ** 2)) / dof
+
+    dropped: list[int] = []
+    if n >= p + 4 and mse > 0:
+        try:
+            XtX_inv = np.linalg.pinv(X.T @ X)
+            h = np.einsum("ij,jk,ik->i", X, XtX_inv, X)      # 레버리지
+            h = np.clip(h, 0.0, 1.0 - 1e-9)
+            cook = (resid ** 2 / (p * mse)) * (h / (1.0 - h) ** 2)
+            # 스튜던트화 잔차 — '이 매물의 가격이 정말 이례적인가'
+            stud = resid / np.sqrt(mse * (1.0 - h))
+
+            # 영향력이 크다고 무조건 빼면 안 된다. 17만km 매물처럼 x 가
+            # 멀리 떨어진 점은 레버리지가 늘 크지만, 그 점이 선 위에
+            # 얌전히 있으면 오히려 기울기를 잡아 주는 귀한 표본이다.
+            # 그래서 '영향력이 크고(cook) 동시에 가격이 이례적인(stud)'
+            # 점만 뺀다. 즉 실제로 잘못 붙은 가격만 걸러낸다.
+            thresh = 4.0 / n
+            cand = [i for i in np.argsort(-cook)
+                    if cook[i] > thresh and abs(stud[i]) > 2.5]
+            dropped = sorted(cand[:max(0, int(n * max_drop_frac))])
+        except np.linalg.LinAlgError:
+            dropped = []
+
+    if dropped:
+        keep = np.array([i for i in range(n) if i not in set(dropped)])
+        Xk, yk = X[keep], y[keep]
+        if np.linalg.matrix_rank(Xk) >= p and len(keep) >= p + 2:
+            beta, *_ = np.linalg.lstsq(Xk, yk, rcond=None)
+            X, y, n = Xk, yk, len(keep)
+        else:
+            dropped = []
+
+    resid = y - X @ beta
     ss_res = float(np.sum(resid ** 2))
     ss_tot = float(np.sum((y - y.mean()) ** 2))
     r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-    dof = max(len(pts) - 3, 1)
+    dof = max(n - p, 1)
+    return beta, float(math.sqrt(ss_res / dof)), r2, n, dropped
+
+
+def fit_market(rows: list[dict], key: str, label: str) -> MarketModel:
+    """시세선을 그린다.
+
+    기본은 잔존율(가격/신차가) 회귀다 — 트림이 섞여도 한 줄로 세울 수 있다.
+    신차가가 없는 매물이 많으면 예전처럼 가격 자체를 회귀한다.
+    """
+    pts = []          # (age, km/1000, price, origin)
+    for r in rows:
+        p_ = to_float(r.get("price_manwon"))
+        a = to_float(r.get("age_years"))
+        km = to_int(r.get("mileage_km"))
+        origin = to_float(r.get("origin_price_manwon"))
+        if p_ and a is not None and km is not None and p_ > 0:
+            pts.append((a, km / 1000.0, p_, origin if (origin and origin > 0) else None))
+
+    prices = [p_ for _, _, p_, _ in pts]
+    origins = [o for _, _, _, o in pts if o]
+    median = float(np.median(prices)) if prices else 0.0
+    n_lease = sum(1 for r in rows if is_lease_listing(r))
+    base = dict(key=key, label=label, n=len(pts), median_price=median,
+                price_min=min(prices) if prices else 0.0,
+                price_max=max(prices) if prices else 0.0,
+                origin_min=min(origins) if origins else 0.0,
+                origin_max=max(origins) if origins else 0.0,
+                n_lease=n_lease)
+
+    if len(pts) < 5:
+        return MarketModel(method="median", low_confidence=True, **base)
+
+    # 신차가가 충분히 있으면 잔존율 회귀. 트림이 섞인 표본에서는 이쪽만이
+    # 옳다 — 가격을 직접 회귀하면 '비싼 트림' 이 '고평가' 로 나온다.
+    ratio_pts = [(a, k, p_ / o, o) for a, k, p_, o in pts if o]
+    use_ratio = len(ratio_pts) >= max(5, int(len(pts) * 0.7))
+
+    if use_ratio:
+        X = np.array([[1.0, a, k] for a, k, _, _ in ratio_pts])
+        y = np.array([v for _, _, v, _ in ratio_pts])
+        method, n_used_all = "ratio", len(ratio_pts)
+        med_ratio = float(np.median(y))
+    else:
+        X = np.array([[1.0, a, k] for a, k, _, _ in pts])
+        y = np.array(prices)
+        method, n_used_all = "absolute", len(pts)
+        med_ratio = 0.0
+
+    if np.linalg.matrix_rank(X) < 3:
+        return MarketModel(method="median", median_ratio=med_ratio,
+                           low_confidence=True, **base)
+
+    beta, resid_std, r2, n_used, dropped = _lstsq_with_outlier_drop(X, y)
+
+    note = ""
+    if dropped:
+        src = ratio_pts if use_ratio else [(a, k, p_, o) for a, k, p_, o in pts]
+        bits = []
+        for i in dropped[:5]:
+            a, k = src[i][0], src[i][1]
+            bits.append(f"{a:.1f}년/{k*1000:,.0f}km")
+        note = (f"가격이 이례적인 표본 {len(dropped)}건 제외 후 적합 "
+                f"({', '.join(bits)}{' ...' if len(dropped) > 5 else ''}) "
+                f"— 영향력과 잔차가 모두 큰 매물만 뺐습니다")
 
     return MarketModel(
-        method="regression",
+        method=method,
         intercept=float(beta[0]), coef_age=float(beta[1]), coef_km=float(beta[2]),
-        r2=r2, resid_std=float(math.sqrt(ss_res / dof)),
-        low_confidence=len(pts) < 8,
+        median_ratio=med_ratio,
+        r2=r2, resid_std=resid_std,
+        low_confidence=n_used < 8,
+        n_dropped=len(dropped), dropped_note=note,
         **base,
     )
 
@@ -190,18 +335,24 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
     age = to_float(row.get("age_years"))
     km = to_int(row.get("mileage_km"))
     price = to_float(row.get("price_manwon"))
+    origin = to_float(row.get("origin_price_manwon"))
 
     out = {"breakdown": [], "unknowns": [], "fair_price_manwon": "",
-           "value_gap_manwon": "", "baseline_manwon": ""}
+           "value_gap_manwon": "", "value_gap_pct": "", "value_gap_sigma": "",
+           "sigma_manwon": "", "baseline_manwon": ""}
     if age is None or km is None or not price:
         out["unknowns"].append("연식/주행거리/가격 결측 — 적정가 산출 불가")
         return out
 
     # 1) 기준 시세 — 같은 연식, '평균' 주행거리일 때의 시세
     expected_km = int(age * P["expected_annual_km"])
-    baseline = market.predict(age, expected_km)
+    baseline = market.predict(age, expected_km, origin)
     if baseline is None:
-        out["unknowns"].append("시세 회귀 불가 — 적정가 산출 불가")
+        if market.method == "ratio" and not origin:
+            out["unknowns"].append("신차가를 못 받아 적정가를 낼 수 없습니다 "
+                                   "(잔존율 기준선은 신차가가 있어야 합니다)")
+        else:
+            out["unknowns"].append("시세 회귀 불가 — 적정가 산출 불가")
         return out
     out["baseline_manwon"] = round(baseline, 0)
     out["expected_km"] = expected_km
@@ -211,7 +362,7 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
     fair = baseline
 
     # 2) 주행거리 — 회귀식의 km 계수를 그대로 쓴다
-    at_actual = market.predict(age, km)
+    at_actual = market.predict(age, km, origin)
     mil_adj = (at_actual - baseline) if at_actual is not None else 0.0
     if not P.get("allow_low_mileage_premium", True):
         mil_adj = min(mil_adj, 0.0)
@@ -266,8 +417,21 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
     # 4) 배터리 보증 잔여 부족
     B = P["battery"]
     frac = to_float(row.get("battery_remaining_pct"))
+    yrs_left = to_float(row.get("battery_years_left"))
+    km_left = to_int(row.get("battery_km_left"))
+    expired = (yrs_left is not None and yrs_left <= 0) or               (km_left is not None and km_left <= 0)
     if frac is None:
         out["unknowns"].append("배터리 보증 잔여를 계산하지 못했습니다")
+    elif expired:
+        # 보증이 이미 끝난 차. '몇 개월 모자라다' 로 환산하면 상한이
+        # 144만원이라 실제 위험을 전혀 못 담는다. 이 차는 배터리 고장이
+        # 나면 전액 자기 부담이고 교체비는 수천만원대다.
+        amt = abs(B["expired_manwon"])
+        why = "주행 16만km 초과" if (km_left is not None and km_left <= 0) else "8년 경과"
+        out["breakdown"].append((f"배터리 보증 소멸 ({why})", -round(amt, 0)))
+        out["unknowns"].append("배터리 보증이 끝난 차입니다 — 교체 위험이 전액 "
+                               "자기 부담이므로 SOH 진단을 반드시 받으세요")
+        fair -= amt
     elif frac < B["reference_remaining_pct"]:
         months = (B["reference_remaining_pct"] - frac) / 100.0 * 96.0
         amt = months * B["manwon_per_month"]
@@ -323,7 +487,21 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
 
     out["breakdown"].append(("= 적정가", round(fair, 0)))
     out["fair_price_manwon"] = round(fair, 0)
-    out["value_gap_manwon"] = round(fair - price, 0)
+
+    # 저평가를 세 가지로 함께 낸다. 하나만 보면 왜곡된다:
+    #   절대금액 — 비싼 차가 항상 위로 온다 (2억의 5% = 1,000만원)
+    #   비율     — 싼 차가 항상 위로 온다 (5천의 20% = 1,000만원)
+    #   σ        — 시세선 자체의 오차로 나눈 값. 둘을 같은 자로 잰다.
+    gap = fair - price
+    out["value_gap_manwon"] = round(gap, 0)
+    out["value_gap_pct"] = round(gap / fair * 100.0, 2) if fair else ""
+    sigma = market.sigma_manwon(origin)
+    if sigma and sigma > 0:
+        out["sigma_manwon"] = round(sigma, 0)
+        out["value_gap_sigma"] = round(gap / sigma, 2)
+    else:
+        out["unknowns"].append("시세선의 잔차를 못 구해 통계적 유의성(σ)을 "
+                               "낼 수 없습니다")
     return out
 
 
@@ -348,12 +526,14 @@ def fit_baseline(rows: list[dict], key: str, label: str) -> MarketModel:
     표본이 모자라면 전체 기준선을 쓰되 사고 할인 계수를 낮춘다.
     """
     B = config.BASELINE
+    if not getattr(config, "INCLUDE_LEASE_IN_BASELINE", True):
+        rows = [r for r in rows if not is_lease_listing(r)]
     clean = [r for r in rows if _is_accident_free(r)]
     m_all = fit_market(rows, key, label)
     m_clean = fit_market(clean, key, label) if clean else None
 
     mode = B.get("mode", "auto")
-    enough = (m_clean is not None and m_clean.method == "regression"
+    enough = (m_clean is not None and m_clean.method in ("ratio", "absolute")
               and m_clean.n >= B.get("min_clean_samples", 8))
 
     use_clean = (mode == "accident_free" and m_clean is not None) or \
@@ -382,7 +562,7 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
     km = to_int(row.get("mileage_km"))
 
     # --- 시세 잔차 ---
-    pred = market.predict(age, km)
+    pred = market.predict(age, km, to_float(row.get("origin_price_manwon")))
     if pred and price:
         row["predicted_price_manwon"] = round(pred, 1)
         row["residual_manwon"] = round(price - pred, 1)      # 음수 = 시세보다 쌈
@@ -590,6 +770,14 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
     row["baseline_manwon"] = fp.get("baseline_manwon", "")
     row["fair_price_manwon"] = fp.get("fair_price_manwon", "")
     row["value_gap_manwon"] = fp.get("value_gap_manwon", "")
+    row["value_gap_pct"] = fp.get("value_gap_pct", "")
+    row["value_gap_sigma"] = fp.get("value_gap_sigma", "")
+    row["sigma_manwon"] = fp.get("sigma_manwon", "")
+    # 리스·렌트 승계는 표시 가격이 인수금이라 '살 대상' 으로 같은 자로
+    # 잴 수 없다. 시세 표본으로는 쓰되 순위에서는 뺀다.
+    row["sample_only"] = is_lease_listing(row)
+    if row["sample_only"]:
+        row["sample_only_reason"] = f"리스·렌트 승계 매물 ({row.get('sell_type') or ''})".strip()
     _bd = fp.get("breakdown", [])
     row["price_breakdown"] = " || ".join(
         f"{lab}={amt:,.0f}" if (i == 0 or i == len(_bd) - 1) else f"{lab}={amt:+,.0f}"

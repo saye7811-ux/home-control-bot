@@ -84,13 +84,18 @@ def _scatter_svg(rows: list[dict], market) -> str:
                    f'class="tick">{val/10000:.1f}만</text>')
 
     # 회귀선 (중앙 연식 기준 단면)
-    if market and market.method == "regression":
+    if market and market.method in ("regression", "ratio", "absolute"):
         ages = [to_float(r.get("age_years")) for r in rows if to_float(r.get("age_years"))]
+        # 잔존율 모델은 신차가가 있어야 금액이 나온다. 트림이 섞여 있으므로
+        # '중앙 신차가' 단면을 그린다 (점 하나하나는 각자의 신차가로 평가된다).
+        origins = [to_float(r.get("origin_price_manwon")) for r in rows
+                   if to_float(r.get("origin_price_manwon"))]
+        med_origin = sorted(origins)[len(origins) // 2] if origins else None
         if ages:
             med_age = sorted(ages)[len(ages) // 2]
             ax, bx = x0 + (x1 - x0) * 0.02, x1 * 0.98
-            ay = market.predict(med_age, ax)
-            by = market.predict(med_age, bx)
+            ay = market.predict(med_age, ax, med_origin)
+            by = market.predict(med_age, bx, med_origin)
             if ay and by:
                 out.append(
                     f'<line x1="{sx(ax):.1f}" y1="{sy(ay):.1f}" '
@@ -123,12 +128,30 @@ def _market_card(market, rows: list[dict]) -> str:
     med = sorted(prices)[len(prices) // 2] if prices else 0
     med_km = sorted(kms)[len(kms) // 2] if kms else 0
 
-    if market.method == "regression":
+    if market.method == "ratio":
+        fit = (f"잔존율 ≈ {market.intercept*100:,.1f}% "
+               f"{market.coef_age*100:+,.1f}%p×경과연수 "
+               f"{market.coef_km*100:+,.3f}%p×(주행거리/1000)  ·  R²={market.r2:.2f}"
+               f"  ·  잔차 ±{market.resid_std*100:.2f}%p")
+    elif market.method == "absolute":
         fit = (f"가격 ≈ {market.intercept:,.0f} "
                f"{market.coef_age:+,.0f}×경과연수 "
-               f"{market.coef_km:+,.1f}×(주행거리/1000)  ·  R²={market.r2:.2f}")
+               f"{market.coef_km:+,.1f}×(주행거리/1000)  ·  R²={market.r2:.2f}"
+               f"  ·  잔차 ±{market.resid_std:,.0f}만원")
     else:
         fit = "표본이 5건 미만이라 회귀 대신 중앙값 기준으로 비교했습니다."
+
+    extra = ""
+    if market.method == "ratio":
+        extra += ('<p class="muted">트림이 섞여 있어 가격이 아니라 '
+                  '<b>잔존율(가격÷신차가)</b>을 회귀했습니다. 적정가는 '
+                  '잔존율 × 그 매물의 신차가입니다 — 비싼 트림이 '
+                  '&lsquo;고평가&rsquo;로 잘못 잡히는 것을 막습니다.</p>')
+    if market.n_dropped:
+        extra += f'<p class="muted">이상치 제외: {_e(market.dropped_note)}</p>'
+    if market.n_lease:
+        extra += (f'<p class="muted">시세 표본에 리스·렌트 승계 {market.n_lease}대가 '
+                  f'포함돼 있습니다 (순위에서는 제외).</p>')
 
     warn = ('<p class="warn">표본이 적어 시세선의 신뢰도가 낮습니다. '
             '잔차 점수를 절대적으로 믿지 마세요.</p>') if market.low_confidence else ""
@@ -143,6 +166,7 @@ def _market_card(market, rows: list[dict]) -> str:
         <div><span class="k">주행 중앙값</span><span class="v">{fmt_km(med_km)}</span></div>
       </div>
       <p class="fit">{_e(fit)}</p>
+      {extra}
       {warn}
       {_scatter_svg(rows, market)}
       <p class="muted">점선 = 중앙 연식({_e(market.label)}) 기준 시세선. 파랑=저평가, 빨강=고평가.</p>
@@ -150,13 +174,31 @@ def _market_card(market, rows: list[dict]) -> str:
 
 
 def _gap_cell(r: dict) -> str:
-    """적정가 대비 차액. 플러스면 저평가(기회)."""
+    """적정가 대비 차액을 세 가지로 보여준다.
+
+    절대금액만 보면 비싼 차가 늘 위로 오고, 비율만 보면 싼 차가 늘 위로
+    온다. σ 는 시세선 자체의 오차로 나눈 값이라 둘을 같은 자로 잰다.
+    |σ|<1 이면 시세선 오차 범위 안이라 '싸다' 고 말하기 어렵다.
+    """
     v = to_float(r.get("value_gap_manwon"))
     if v is None:
         return '<span class="muted small">산출 불가</span>'
+    pct = to_float(r.get("value_gap_pct"))
+    sg = to_float(r.get("value_gap_sigma"))
+    sigma = to_float(r.get("sigma_manwon"))
     cls = "good" if v > 0 else "bad"
-    return (f'<span class="gap {cls}">{v:+,.0f}</span>'
-            f'<div class="muted small">만원</div>')
+    out = [f'<span class="gap {cls}">{v:+,.0f}</span>'
+           f'<div class="muted small">만원</div>']
+    if pct is not None:
+        out.append(f'<div class="gap-sub {cls}">{pct:+.1f}%</div>')
+    if sg is not None:
+        weak = ' weak' if abs(sg) < 1.0 else ''
+        out.append(f'<div class="gap-sig{weak}">{sg:+.2f}&sigma;</div>')
+        if abs(sg) < 1.0:
+            out.append('<div class="muted small">시세선 오차 범위 안</div>')
+    if sigma:
+        out.append(f'<div class="muted small">&plusmn;{sigma:,.0f}만원</div>')
+    return "".join(out)
 
 
 def _breakdown_html(r: dict) -> str:
@@ -379,6 +421,13 @@ border:2px solid var(--plate-fg)}
 .hidden-tag{margin-top:5px;font-size:12px;color:var(--muted)}
 .gap{font-size:19px;font-weight:800}
 .gap.good{color:var(--good)}.gap.bad{color:var(--bad)}
+.gap-sub{font-size:13px;font-weight:700;margin-top:2px}
+.gap-sub.good{color:var(--good)}.gap-sub.bad{color:var(--bad)}
+.gap-sig{font-size:13px;font-weight:800;margin-top:3px;
+         padding:1px 6px;border-radius:999px;display:inline-block;
+         background:var(--good);color:#fff}
+.gap-sig.weak{background:transparent;color:var(--muted);
+              border:1px solid var(--border);font-weight:600}
 .bdcell{min-width:250px}
 table.bd{width:100%;border-collapse:collapse;font-size:11.5px;min-width:auto}
 table.bd td{padding:2px 4px;border:0;vertical-align:top}
@@ -442,6 +491,12 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
   <p class="sub">적정가 대비 차액이 플러스면 저평가(기회), 마이너스면 고평가입니다.
     흠결이 있어도 그만큼 싸면 위로 올라옵니다. 침수·전손·골격C·배터리팩 손상·
     주행거리 조작은 금액 환산이 불가능한 리스크라 후보에서 제외됩니다.</p>
+  <div class="banner"><b>&sigma;(시그마)를 먼저 보세요.</b><br>
+    저평가 폭을 시세선 자체의 오차로 나눈 값입니다. 절대금액만 보면 비싼 차가
+    항상 위로 오고(2억의 5%는 1,000만원), 비율만 보면 싼 차가 항상 위로 옵니다.
+    &sigma;는 둘을 같은 자로 잽니다.<br>
+    <b>|&sigma;| &lt; 1</b> — 시세선 오차 범위 안. 통계적으로 &lsquo;싸다&rsquo;고 말하기 어렵습니다.<br>
+    <b>|&sigma;| &gt; 2</b> — 우연으로 보기 어려운 수준. 실제로 확인할 값어치가 있습니다.</div>
   <div class="banner"><b>이 금액은 절대값이 아니라 매물 간 상대 비교용입니다.</b><br>
     적정가 = 기준 시세(동일 연식 · 평균주행)에서 과주행 · 사고이력 · 배터리 보증
     잔여 부족 · 소유/용도 이력을 금액으로 뺀 값입니다. 환산 계수는 추정치이며
@@ -453,7 +508,7 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
       <thead><tr>
         <th>#</th><th>차량번호 / 모델</th><th class="num">가격</th>
         <th class="num">연식 / 주행</th><th class="num">연평균</th>
-        <th class="num">배터리 보증</th><th class="num">적정가 대비</th>
+        <th class="num">배터리 보증</th><th class="num">적정가 대비<br><span class="small">만원 / % / &sigma;</span></th>
         <th>적정가 산출 내역</th><th>추천 / 주의 사유</th><th>링크</th>
       </tr></thead>
       <tbody>{_rank_rows(ranked, stage)}</tbody>

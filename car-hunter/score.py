@@ -39,6 +39,9 @@ SCORED_FIELDS = [
     "insp_repair_notes", "insp_repair_penalty", "insp_worst_rank",
     "insp_worst_status",
     "baseline_manwon", "fair_price_manwon", "value_gap_manwon",
+    "value_gap_pct", "value_gap_sigma", "sigma_manwon",
+    "sample_only", "sample_only_reason", "origin_price_manwon", "sell_type",
+    "page_is_image",
     "price_breakdown", "price_unknowns", "score_points",
     "insp_unclassified", "battery_pack_damage",
     "insp_diagnostics", "repair_source",
@@ -91,23 +94,101 @@ def print_market_summary(market, rows) -> None:
     print(f"  기준선    {market.basis} 매물 기준 "
           f"(무사고 {market.n_clean}대 / 전체 {len(rows)}대, "
           f"사고 할인 계수 x{market.accident_scale:.1f})")
-    if market.method == "regression":
+    origins = sorted(r["origin_price_manwon"] for r in rows
+                     if r.get("origin_price_manwon"))
+    if origins:
+        print(f"  신차가    최저 {fmt_manwon(origins[0])}  /  "
+              f"최고 {fmt_manwon(origins[-1])}  (트림 차이)")
+
+    if market.method == "ratio":
+        # 트림이 섞여 있으므로 가격이 아니라 '잔존율' 을 회귀한다.
+        # 적정가 = 잔존율 × 그 매물의 신차가.
+        print(f"  시세선    잔존율 ≈ {market.intercept*100:,.1f}% "
+              f"{market.coef_age*100:+,.1f}%p×연수 "
+              f"{market.coef_km*100:+,.3f}%p×(km/1000)"
+              f"   R²={market.r2:.2f}")
+        print(f"            (적정가 = 잔존율 × 신차가 — 트림 차이를 흡수합니다)")
+        print(f"            잔차 표준편차 ±{market.resid_std*100:.2f}%p"
+              f"  = 신차가 1억 기준 ±{market.resid_std*10000:,.0f}만원")
+    elif market.method == "absolute":
         print(f"  시세선    가격 ≈ {market.intercept:,.0f} "
               f"{market.coef_age:+,.0f}×연수 {market.coef_km:+,.1f}×(km/1000)"
               f"   R²={market.r2:.2f}")
         print(f"            잔차 표준편차 ±{market.resid_std:,.0f}만원")
+        print("            ! 신차가를 못 받은 매물이 많아 트림 보정 없이 "
+              "가격을 직접 회귀했습니다")
     else:
         print("  시세선    표본 5건 미만 — 중앙값 기준 비교로 대체")
+
+    if market.n_dropped:
+        print(f"  이상치    {market.dropped_note}")
+        print("            표본 하나가 시세선을 통째로 끌고 가는 것을 막습니다")
+    if market.n_lease:
+        print(f"  리스·렌트 표본에 {market.n_lease}대 포함 "
+              f"(순위에서는 제외 — 표시 가격이 인수금이라 차값과 다릅니다)")
     if market.low_confidence:
         print("  ! 표본이 적어 시세선 신뢰도가 낮습니다.")
 
 
-def print_top(rows, n) -> None:
+PRICE_BANDS = [
+    (0, 6000, "6천만원 미만"),
+    (6000, 8000, "6~8천만원"),
+    (8000, 10000, "8천만~1억"),
+    (10000, 13000, "1억~1억3천"),
+    (13000, 10 ** 9, "1억3천 이상"),
+]
+
+
+def _band(price):
+    for lo, hi, lab in PRICE_BANDS:
+        if price is not None and lo <= price < hi:
+            return lab
+    return "가격 미상"
+
+
+def print_price_bands(rows) -> None:
+    """가격대별로 묶어서 본다.
+
+    목적이 '예산 안에서 고르기' 가 아니라 '저평가 탐지' 라서 가격으로
+    거르지 않는다. 대신 어느 가격대에 기회가 몰려 있는지는 보여준다.
+    """
+    if not rows:
+        return
     print(f"\n{_hr('━')}")
-    print(f" 적정가 대비 저평가 상위 {min(n, len(rows))}대")
+    print(" 가격대별 요약")
+    print(_hr('━'))
+    print(f" {'가격대':<14}{'대수':>4}  {'최고 저평가':>28}   {'중앙 σ':>8}")
+    for _lo, _hi, lab in PRICE_BANDS:
+        g = [r for r in rows if _band(to_float(r.get("price_manwon"))) == lab]
+        if not g:
+            continue
+        best = max(g, key=lambda r: to_float(r.get("value_gap_sigma")) or -9e9)
+        sg = to_float(best.get("value_gap_sigma"))
+        gap = to_float(best.get("value_gap_manwon"))
+        pct = to_float(best.get("value_gap_pct"))
+        sigs = sorted(x for x in (to_float(r.get("value_gap_sigma")) for r in g)
+                      if x is not None)
+        med = sigs[len(sigs) // 2] if sigs else None
+        head = (f"{best.get('plate_no') or '?'} {gap:+,.0f}만 "
+                f"({pct:+.1f}%, {sg:+.2f}σ)") if sg is not None else "산출 불가"
+        print(f" {lab:<14}{len(g):>4}대  {head:>28}   "
+              f"{(f'{med:+.2f}σ' if med is not None else '-'):>8}")
+
+
+def print_top(rows, n, sort_label: str = "") -> None:
+    print(f"\n{_hr('━')}")
+    print(f" 저평가 상위 {min(n, len(rows))}대"
+          + (f"  —  기준: {sort_label}" if sort_label else ""))
     print(_hr('━'))
     print(" 적정가 = 기준 시세에서 흠결(과주행·사고·배터리·이력)을 금액으로 뺀 값.")
     print(" 흠결이 있어도 그만큼 싸면 위로 올라옵니다.")
+    print("")
+    print(" 저평가를 세 가지로 함께 봅니다:")
+    print("   만원  절대금액 — 실제로 아끼는 돈. 비싼 차일수록 크게 나옵니다.")
+    print("   %     비율    — 싼 차일수록 크게 나옵니다.")
+    print("   σ     유의성  — 시세선 자체의 오차로 나눈 값. 두 왜곡을 걷어냅니다.")
+    print("         |σ|<1 이면 시세선 오차 범위 안이라 '싸다' 고 말하기 어렵습니다.")
+    print("         2σ 를 넘으면 우연으로 보기 어려운 수준입니다.")
     print("")
     print(" ※ 계수는 추정치입니다. 금액의 절대값이 아니라 매물 간 상대 비교로 보세요.")
     print(" ※ 에어서스·배터리 제조사는 아직 반영 전입니다 (헤이딜러 조회 후 확정).")
@@ -127,9 +208,24 @@ def print_top(rows, n) -> None:
         if gap is None or fair is None:
             print("       적정가 산출 불가")
         else:
+            pct = to_float(r.get("value_gap_pct"))
+            sg = to_float(r.get("value_gap_sigma"))
+            sigma = to_float(r.get("sigma_manwon"))
             verdict = "저평가 (기회)" if gap > 0 else "고평가"
             print(f"       적정가 {fair:,.0f}만원 / 판매가 {price:,.0f}만원"
                   f"  ->  {gap:+,.0f}만원 {verdict}")
+            bits = []
+            if pct is not None:
+                bits.append(f"비율 {pct:+.1f}%")
+            if sg is not None:
+                bits.append(f"유의성 {sg:+.2f}σ")
+            if sigma:
+                bits.append(f"시세선 오차 ±{sigma:,.0f}만원")
+            if bits:
+                print(f"       {' · '.join(bits)}")
+            if sg is not None and abs(sg) < 1.0:
+                print("       ! 시세선 오차 범위 안입니다 — 통계적으로 "
+                      "'싸다' 고 보기 어렵습니다")
         print(f"       {r.get('model_label')} · {r.get('trim')} · {r.get('region')}"
               f"  |  {r.get('year')}.{str(r.get('month') or '').zfill(2)}"
               f"  |  {fmt_km(r.get('mileage_km'))}")
@@ -156,6 +252,12 @@ def print_top(rows, n) -> None:
 def main() -> int:
     p = argparse.ArgumentParser(description="가성비 스코어링 (2단계)")
     p.add_argument("--top", type=int, default=config.TOP_N)
+    p.add_argument("--sort", choices=["sigma", "amount", "pct"], default="sigma",
+                   help="순위 기준. sigma=통계적 유의성(기본), "
+                        "amount=절대금액(만원), pct=비율(%%)")
+    p.add_argument("--include-lease", action="store_true",
+                   help="리스·렌트 승계 매물도 순위에 포함 "
+                        "(표시 가격이 인수금이라 기본은 제외)")
     p.add_argument("--no-report", action="store_true")
     p.add_argument("--input", default=LISTINGS_CSV)
     args = p.parse_args()
@@ -208,34 +310,58 @@ def main() -> int:
     def _excluded(r) -> bool:
         return str(r.get("excluded", "")).strip().lower() in ("true", "1")
 
-    ranked = [r for r in scored_all if _detailed(r) and not _excluded(r)]
+    def _sample_only(r) -> bool:
+        return str(r.get("sample_only", "")).strip().lower() in ("true", "1")
+
+    cand = [r for r in scored_all if _detailed(r) and not _excluded(r)]
     excluded = [r for r in scored_all if _detailed(r) and _excluded(r)]
-    skipped = len(scored_all) - len(ranked) - len(excluded)
+    lease = [r for r in cand if _sample_only(r)]
+    if args.include_lease:
+        ranked, lease = cand, []
+    else:
+        ranked = [r for r in cand if not _sample_only(r)]
+    skipped = len(scored_all) - len(cand) - len(excluded)
+
     if excluded:
         warn(f"후보 제외 {len(excluded)}건 (침수/전손·배터리팩 손상·골격C):")
         for r in excluded[:5]:
             warn(f"    {r.get('plate_no') or r.get('vehicle_id')} — {r.get('excluded_reason')}")
+    if lease:
+        log(f"리스·렌트 승계 {len(lease)}건은 순위에서 제외했습니다 "
+            f"(표시 가격이 인수금이라 차값과 같은 자로 못 잽니다). "
+            f"시세 표본으로는 씁니다. --include-lease 로 포함할 수 있습니다.")
     if skipped:
         log(f"순위 대상 {len(ranked)}건 (상세 미확보 {skipped}건은 시세 표본으로만 사용)")
 
-    # 순위 기준은 '적정가 - 판매가'. 흠결이 있어도 그만큼 싸면 위로 올라온다.
-    def _gap(r) -> float:
-        v = to_float(r.get("value_gap_manwon"))
+    # 저평가를 세 가지로 잰다. 기본은 σ — 시세선 자체의 오차로 나눈 값이라
+    # 2억짜리와 5천짜리를 같은 자로 비교할 수 있다.
+    SORT_KEYS = {
+        "sigma": ("value_gap_sigma", "통계적 유의성(σ)"),
+        "amount": ("value_gap_manwon", "절대금액(만원)"),
+        "pct": ("value_gap_pct", "비율(%)"),
+    }
+    sort_field, sort_label = SORT_KEYS[args.sort]
+
+    def _key(r) -> float:
+        v = to_float(r.get(sort_field))
         return v if v is not None else -9e9   # 산출 불가 매물은 맨 뒤로
 
-    ranked.sort(key=_gap, reverse=True)
+    ranked.sort(key=_key, reverse=True)
+    log(f"순위 기준: {sort_label}")
     for i, r in enumerate(ranked, 1):
         r["rank"] = i
     for r in scored_all:
         r.setdefault("rank", "")
 
     write_csv(SCORED_CSV,
-              ranked + excluded + [r for r in scored_all if not _detailed(r)],
+              ranked + lease + excluded
+              + [r for r in scored_all if not _detailed(r)],
               SCORED_FIELDS)
     write_json(MARKET_JSON, {m.key: m.__dict__ for m, _ in models})
     log(f"저장: {SCORED_CSV} (순위 {len(ranked)}건 + 표본 {skipped}건)")
 
-    print_top(ranked, args.top)
+    print_top(ranked, args.top, sort_label=sort_label)
+    print_price_bands(ranked)
 
     if not args.no_report:
         html = report_mod.build_html(models, ranked[:max(args.top, 20)], stage="stage2")

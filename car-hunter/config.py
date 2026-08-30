@@ -24,7 +24,7 @@ COLLECT = {
     "max_listings_per_model": 400,
     # 상세 조회(차량번호/옵션/사고이력)는 매물당 4회 요청이라 비싸다.
     # 시세 기준 상위 이만큼만 상세를 받는다. 전량이면 40분을 넘긴다.
-    "detail_top_n": 50,
+    "detail_top_n": 90,
     "user_agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -80,20 +80,21 @@ PROBE_PAGE_SIZE = 50
 TARGETS = [
     {
         "key": "ix_xdrive50",
-        "label": "BMW iX xDrive50",
+        "label": "BMW iX",
         # CarType.N — 브라우저 확인값 (BMW=수입차가 N 으로 나감)
         "car_type": "N",
         "manufacturer": "BMW",
         "model_group": "iX",
         "model": None,          # 확인된 요청은 ModelGroup 까지만 내려간다
         "confirmed": True,
-        # 상세 트림(Badge)에 아래 문자열 중 하나가 들어가야 최종 채택.
-        # ModelGroup 만으로는 xDrive40 / M60 이 섞여 들어오므로 필수.
-        "badge_contains": ["xDrive50", "xDrive 50", "xdrive50"],
-        # 'xDrive M70' 처럼 xDrive 가 들어가지만 다른 트림인 것을 확실히 배제
-        "badge_excludes": ["M70", "M60", "xDrive40", "xDrive 40"],
-        "year_from": 2022,
-        "year_to": 2024,
+        # 트림 필터 없음 — xDrive40 / 45 / 50 / M60 / M70 을 전부 받는다.
+        # 목적이 '예산 안에서 고르기' 가 아니라 '저평가 탐지' 라서, 표본이
+        # 많을수록 시세선이 정확해지고 저평가를 통계로 증명할 수 있다.
+        # 트림별 신차가 차이는 잔존율 회귀(가격/신차가)가 흡수한다.
+        "badge_contains": [],
+        "badge_excludes": [],
+        "year_from": 2021,
+        "year_to": 2026,
         "airsus_keywords": [
             "에어서스", "에어 서스", "에어서스펜션",
             "다이나믹 핸들링", "다이내믹 핸들링",
@@ -102,20 +103,23 @@ TARGETS = [
     },
     {
         "key": "eqe_suv_350",
-        "label": "벤츠 EQE SUV 350 4MATIC",
+        "label": "벤츠 EQE SUV",
         "car_type": "N",
         # 브라우저 실측 확인값. Model 은 'EQE SUV' 가 아니라 차체코드까지
         # 포함한 'EQE SUV X294' 여야 한다.
         "manufacturer": "벤츠",
         "model_group": "EQE",
+        # Model 은 'EQE SUV' 가 아니라 차체코드까지 포함한 'EQE SUV X294'.
+        # 이 값이 세단(V295)과 SUV 를 가르므로 여기는 그대로 둔다.
         "model": "EQE SUV X294",
         "confirmed": True,
-        # 실제 트림 표기: "벤츠 EQE SUV X294 EQE350 4MATIC"
-        "badge_contains": ["EQE350", "EQE 350"],
-        # EQE500 은 파라시스 배터리라 애초에 후보에서 뺀다
-        "badge_excludes": ["EQE500", "EQE 500", "AMG"],
-        "year_from": 2023,
-        "year_to": 2024,
+        # 트림 필터 없음 — EQE350 / EQE500, 2WD / 4MATIC 을 전부 받는다.
+        # EQE500(파라시스 배터리) 도 시세 표본으로는 유용하다. 배터리
+        # 제조사 판정은 3단계 헤이딜러에서 금액으로 반영한다.
+        "badge_contains": [],
+        "badge_excludes": [],
+        "year_from": 2022,
+        "year_to": 2026,
         "airsus_keywords": [
             "에어매틱", "에어 매틱", "AIRMATIC", "airmatic",
             "에어서스", "에어서스펜션",
@@ -583,6 +587,11 @@ PRICING = {
     "battery": {
         "reference_remaining_pct": 50.0,   # 이 이상이면 할인 없음
         "manwon_per_month": 3.0,           # 부족 1개월당 만원
+        # 보증이 이미 끝난 차(8년 경과 또는 16만km 초과)는 위 개월수 환산이
+        # 통하지 않는다. 그 식은 상한이 144만원이라 '보증이 조금 모자란
+        # 차' 와 '보증이 아예 없는 차' 를 같게 취급한다. 배터리 교체비가
+        # 수천만원대라 실제 위험은 전혀 다르다.
+        "expired_manwon": -1000.0,
     },
 
     # 이력 — 차값 대비 %
@@ -655,6 +664,19 @@ OPTION_MENTION_KEYWORDS = {
 # ---------------------------------------------------------------------------
 # 매물 제외 조건
 # ---------------------------------------------------------------------------
-# 판매 형태에 이 문자열이 들어가면 제외한다 (리스/렌트 승계 매물은
-# 소유 구조와 가격 산정이 일반 매물과 달라 시세 비교를 왜곡한다).
-EXCLUDE_SELL_TYPES = ["리스", "렌트", "렌터카", "장기렌트", "영업용", "대여"]
+# 판매 형태에 이 문자열이 들어가면 '순위에서만' 뺀다.
+#
+# 수집 자체는 한다. 표본이 많을수록 시세선이 정확해지고, 저평가를 통계로
+# 증명할 수 있기 때문이다. 다만 리스·렌트 승계 매물은 표시 가격이 인수금
+# 이라 일반 매물의 '차값' 과 같은 수가 아니다. 그래서 살 대상(순위)에서는
+# 빼고, 시세 표본으로 쓸지는 아래 플래그로 정한다.
+RANK_EXCLUDE_SELL_TYPES = ["리스", "렌트", "렌터카", "장기렌트", "영업용", "대여"]
+
+# 수집 단계에서 아예 버릴 판매형태. 비워 두면 전부 수집한다.
+EXCLUDE_SELL_TYPES: list[str] = []
+
+# 리스·렌트 매물을 시세 회귀 표본에 넣을 것인가.
+#   True  — 표본을 늘린다 (표본 수가 우선일 때)
+#   False — 인수금이 차값으로 섞이는 것을 막는다 (기본, 안전)
+# 켜고 끈 결과가 콘솔에 함께 표시되므로 직접 비교해서 정할 수 있다.
+INCLUDE_LEASE_IN_BASELINE = True
