@@ -991,19 +991,138 @@ def _symbols_in(text: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+STATE_PAIRS = {
+    "state": ("양호", "불량"),
+    "yesno": ("없음", "있음"),
+}
+
+
+def _selection_score(el) -> int:
+    """이 요소가 '선택된 값' 으로 보이는 정도. 양수면 선택, 음수면 비선택."""
+    import config as _cfg
+    M = _cfg.SELECTED_MARKERS
+    score = 0
+    node = el
+    for _ in range(3):            # 자기 자신 + 부모 2단계까지 본다
+        if node is None or not getattr(node, "name", None):
+            break
+        if node.name in M["tags"]:
+            score += 2
+        cls = " ".join(node.get("class") or []).lower()
+        if cls:
+            if any(w in cls for w in M["class_off"]):
+                score -= 3
+            elif any(w in cls for w in M["class_on"]):
+                score += 3
+        style = (node.get("style") or "").lower().replace(" ", "")
+        if style:
+            if any(w.replace(" ", "") in style for w in M["style_off"]):
+                score -= 3
+            elif any(w.replace(" ", "") in style for w in M["style_on"]):
+                score += 3
+        node = node.parent
+    for img in (el.find_all("img") if hasattr(el, "find_all") else []):
+        src = (img.get("src") or "") + " " + (img.get("alt") or "")
+        if any(w in src.lower() for w in M["img_on"]):
+            score += 2
+    return score
+
+
+def _pick_selected(cell, kind: str) -> tuple[str | None, str]:
+    """선택지가 둘 다 적힌 칸에서 '선택된' 값을 고른다.
+
+    반환: (값, 근거). 판별 못 하면 (None, 이유).
+
+    이게 이 파서에서 가장 중요한 부분이다. 텍스트만 읽으면 "양호 불량" 이
+    통째로 값이 되고, 거기에 '불량' 이 들어 있으니 멀쩡한 차가 전부
+    불량으로 판정된다. 확실하지 않으면 '판정 불가' 를 돌려준다.
+    """
+    good, bad = STATE_PAIRS.get(kind, ("양호", "불량"))
+    text = cell.get_text(" ", strip=True) if hasattr(cell, "get_text") else str(cell)
+
+    has_good, has_bad = good in text, bad in text
+    if has_good and not has_bad:
+        return good, "한쪽만 표기"
+    if has_bad and not has_good:
+        return bad, "한쪽만 표기"
+    if not has_good and not has_bad:
+        return None, "선택지 문구가 없음"
+
+    # 둘 다 있으면 마크업으로 판별
+    cands: list[tuple[str, int]] = []
+    for word in (good, bad):
+        for el in cell.find_all(string=lambda t, w=word: t and w in t):
+            parent = el.parent
+            if parent is None:
+                continue
+            # 그 요소의 텍스트가 해당 낱말만인 경우가 선택 표시 대상
+            if parent.get_text(strip=True) not in (word,):
+                continue
+            cands.append((word, _selection_score(parent)))
+            break
+
+    if len(cands) < 2:
+        return None, "선택 표시를 구분할 마크업이 없음 (판정 불가)"
+
+    cands.sort(key=lambda t: t[1], reverse=True)
+    if cands[0][1] == cands[1][1]:
+        return None, "선택 표시가 같아 구분 불가 (판정 불가)"
+    if cands[0][1] <= 0:
+        return None, "선택된 값을 특정할 수 없음 (판정 불가)"
+    return cands[0][0], f"마크업 판별 (점수 {cands[0][1]} vs {cands[1][1]})"
+
+
+RANK_LABELS = [
+    ("외판1", ["외판부위 1랭크", "외판 1랭크", "1랭크"]),
+    ("외판2", ["외판부위 2랭크", "외판 2랭크", "2랭크"]),
+    ("골격A", ["주요골격 A랭크", "골격 A랭크", "A랭크"]),
+    ("골격B", ["주요골격 B랭크", "골격 B랭크", "B랭크"]),
+    ("골격C", ["주요골격 C랭크", "골격 C랭크", "C랭크"]),
+]
+
+
+def _status_from_element(el) -> str | None:
+    """요소에서 상태 부호를 읽는다. 동그라미 문자 / class / img 순으로."""
+    import config as _cfg
+    txt = el.get_text(" ", strip=True) if hasattr(el, "get_text") else str(el)
+    for ch in txt:
+        if ch in _cfg.INSPECTION_SYMBOLS:
+            return _cfg.INSPECTION_SYMBOLS[ch]
+
+    if not hasattr(el, "find_all"):
+        return None
+    # class="ico_x" / "mark_w" / "state-x" 같은 표기
+    for node in [el] + el.find_all(True):
+        cls = " ".join(node.get("class") or []).lower()
+        m = re.search(r"(?:ico|icon|mark|state|status|stat)[_\-]?([xwcaut])\b", cls)
+        if m:
+            return m.group(1).upper()
+        for img in ([node] if node.name == "img" else []):
+            src = ((img.get("src") or "") + " " + (img.get("alt") or "")).lower()
+            m2 = re.search(r"[_/\-]([xwcaut])[._\-]", src)
+            if m2:
+                return m2.group(1).upper()
+            for sym, code in _cfg.INSPECTION_SYMBOLS.items():
+                if sym in (img.get("alt") or ""):
+                    return code
+    return None
+
+
 def parse_inspection_page(html_text: str) -> dict:
     """성능기록부 HTML 을 구조화한다.
 
-    마크업 구조를 모르므로 CSS 선택자에 의존하지 않는다. 표의 셀 텍스트와
-    라벨 문구를 기준으로 읽고, 표가 없으면 전체 텍스트에서 다시 찾는다.
+    핵심 원칙: 확실하지 않으면 '판정 불가' 로 둔다. 이 페이지는 선택지를
+    양쪽 다 글자로 적어 두고 굵기·색·클래스로만 실제 판정을 표시하므로,
+    텍스트만 읽으면 멀쩡한 차가 전부 '불량' 이 된다.
     """
     import config as _cfg
     from bs4 import BeautifulSoup
 
     out: dict[str, Any] = {
         "page_available": False, "repairs": [], "unmatched_parts": [],
-        "detail_bad": [], "ev_hv": {}, "ev_hv_bad": [], "fields": {},
-        "parse_note": "",
+        "detail_bad": [], "detail_unknown": [], "ev_hv": {}, "ev_hv_bad": [],
+        "ev_hv_unknown": [], "fields": {}, "field_notes": {},
+        "rank_sections": {}, "parse_note": "",
     }
     if not html_text or not html_text.strip():
         out["parse_note"] = "페이지 내용이 비어 있습니다"
@@ -1014,111 +1133,128 @@ def parse_inspection_page(html_text: str) -> dict:
     except Exception:
         soup = BeautifulSoup(html_text, "html.parser")
 
-    text = soup.get_text("\n", strip=True)
-    out["page_available"] = bool(text)
-    rows = _cells(soup)
+    out["page_available"] = bool(soup.get_text(strip=True))
 
-    # --- 1) 수리 부위: 셀에 부위명, 같은 행에 상태 부호 ---
-    seen: set[tuple[str, str, str]] = set()
-    for cells in rows:
-        joined = " ".join(cells)
-        syms = _symbols_in(joined)
-        if not syms:
-            continue
-        for cell in cells:
-            canon, rank = resolve_part(cell)
-            if not canon:
-                continue
-            pos = ""
-            m = re.search(r"[(（]\s*([좌우전후])\s*[)）]", cell)
-            if m:
-                pos = m.group(1)
-            for sym in syms:
-                key = (canon, sym, pos)
-                if key in seen:
-                    continue
-                seen.add(key)
-                out["repairs"].append({
-                    "part": canon, "raw": cell.strip(), "position": pos,
-                    "status": sym, "rank": rank,
-                })
-
-    # 표에서 못 찾았으면 줄 단위 텍스트로 한 번 더
-    if not out["repairs"]:
-        for line in text.split("\n"):
-            syms = _symbols_in(line)
-            if not syms:
-                continue
-            canon, rank = resolve_part(line)
-            if not canon:
-                continue
-            for sym in syms:
-                key = (canon, sym, "")
-                if key not in seen:
-                    seen.add(key)
-                    out["repairs"].append({
-                        "part": canon, "raw": line.strip()[:60],
-                        "position": "", "status": sym, "rank": rank,
-                    })
-        if out["repairs"]:
-            out["parse_note"] = "표 대신 텍스트 줄에서 부위를 읽었습니다"
-
-    # 부호는 있는데 부위를 못 알아본 줄 — 표기 변형을 늘리기 위한 보고
-    for cells in rows:
-        joined = " ".join(cells)
-        if not _symbols_in(joined):
-            continue
-        if any(resolve_part(c)[0] for c in cells):
-            continue
-        cand = [c for c in cells if 2 <= len(c) <= 20 and not _symbols_in(c)]
-        out["unmatched_parts"].extend(cand[:2])
-    out["unmatched_parts"] = list(dict.fromkeys(out["unmatched_parts"]))[:20]
-
-    # --- 2) 라벨/값 항목 ---
-    def _value_for(labels: list[str]) -> str | None:
-        for cells in rows:
+    # 라벨 -> 값 칸(요소)을 찾는다
+    def _cell_for(labels: list[str]):
+        for tr in soup.find_all("tr"):
+            cells = tr.find_all(["td", "th"])
             for i, c in enumerate(cells):
-                cf = c.replace(" ", "")
-                if not any(lb.replace(" ", "") in cf for lb in labels):
+                ct = c.get_text(" ", strip=True).replace(" ", "")
+                if not any(lb.replace(" ", "") in ct for lb in labels):
                     continue
+                # 라벨 칸 자체가 값까지 담고 있지 않은 경우 다음 칸
                 for nxt in cells[i + 1:]:
-                    if nxt.strip():
-                        return nxt.strip()
-        for lb in labels:
-            m = re.search(re.escape(lb) + r"\s*[:：]?\s*([^\n]{1,40})", text)
-            if m:
-                return m.group(1).strip()
+                    if nxt.get_text(strip=True):
+                        return nxt
         return None
 
-    for key, labels in _cfg.INSPECTION_PAGE_FIELDS:
-        v = _value_for(labels)
-        if v:
-            out["fields"][key] = v
+    # --- 1) 라벨/값 ---
+    for key, labels, kind in _cfg.INSPECTION_PAGE_FIELDS:
+        cell = _cell_for(labels)
+        if cell is None:
+            continue
+        raw = cell.get_text(" ", strip=True)
+        if kind in STATE_PAIRS:
+            val, why = _pick_selected(cell, kind)
+            out["fields"][key] = val
+            out["field_notes"][key] = why if val else f"{why} (원문: {raw[:40]})"
+        elif kind == "number":
+            out["fields"][key] = to_int(raw)
+            out["field_notes"][key] = raw[:40]
+        else:
+            out["fields"][key] = raw[:400]
+            out["field_notes"][key] = "텍스트"
 
-    # --- 3) 자동차 세부상태: 불량 항목 수집 ---
+    # --- 2) 수리 부위: 랭크 행 단위로 ---
+    for rank, labels in RANK_LABELS:
+        row = None
+        for tr in soup.find_all("tr"):
+            head = tr.get_text(" ", strip=True).replace(" ", "")
+            if any(lb.replace(" ", "") in head for lb in labels):
+                row = tr
+                break
+        if row is None:
+            continue
+
+        cells = row.find_all(["td", "th"])
+        value_cells = [c for c in cells
+                       if not any(lb.replace(" ", "") in c.get_text(strip=True).replace(" ", "")
+                                  for lb in labels)]
+        body = " ".join(c.get_text(" ", strip=True) for c in value_cells).strip()
+        if not body or body in ("없음", "-", "해당없음"):
+            out["rank_sections"][rank] = "없음"
+            continue
+        out["rank_sections"][rank] = body[:120]
+
+        found_here = 0
+        for cell in value_cells:
+            # 부위명 후보 요소들
+            for node in cell.find_all(True) or [cell]:
+                name = node.get_text(" ", strip=True)
+                if not name or len(name) > 30:
+                    continue
+                canon, _r = resolve_part(name)
+                if not canon:
+                    continue
+                # 상태 부호는 같은 요소 또는 바로 다음 형제에서
+                st = _status_from_element(node)
+                sib = node.find_next_sibling()
+                if not st and sib is not None:
+                    st = _status_from_element(sib)
+                if not st:
+                    st = _status_from_element(cell)
+                pos = ""
+                m = re.search(r"[(（]\s*([좌우전후])\s*[)）]", name)
+                if m:
+                    pos = m.group(1)
+                key = (canon, st or "?", pos)
+                if any((r["part"], r["status"], r["position"]) == key
+                       for r in out["repairs"]):
+                    continue
+                out["repairs"].append({
+                    "part": canon, "raw": name, "position": pos,
+                    "status": st or "?", "rank": rank,
+                    "status_known": bool(st),
+                })
+                found_here += 1
+        if not found_here and body not in ("없음",):
+            out["unmatched_parts"].append(f"[{rank}] {body[:60]}")
+
+    # 랭크 행을 아예 못 찾았으면 마크업이 예상과 다르다는 뜻
+    if not out["rank_sections"]:
+        out["parse_note"] = ("랭크 행(외판 1랭크 등)을 찾지 못했습니다 — "
+                             "마크업이 예상과 다릅니다")
+
+    # --- 3) 자동차 세부상태 ---
     seen_detail: set[str] = set()
     for item in _cfg.INSPECTION_DETAIL_ITEMS:
         key = item.replace(" ", "")
         if key in seen_detail:
             continue
-        v = _value_for([item])
-        if not v:
+        cell = _cell_for([item])
+        if cell is None:
             continue
         seen_detail.add(key)
-        if _norm_state(v) == "불량":
-            out["detail_bad"].append(f"{item}({v})")
+        val, why = _pick_selected(cell, "state")
+        if val == "불량":
+            out["detail_bad"].append(item)
+        elif val is None:
+            out["detail_unknown"].append(f"{item}({why})")
 
-    # --- 4) 고전원전기장치 (전기차 전용) ---
-    # 정규 항목명 기준으로 한 번만 센다. 표기 변형을 각각 세면 불량 1건이
-    # 여러 건으로 잡혀 감점이 배로 튄다.
+    # --- 4) 고전원전기장치 ---
     for canonical, aliases in _cfg.EV_HV_ITEMS.items():
-        v = _value_for(list(aliases))
-        if not v:
+        cell = _cell_for(list(aliases))
+        if cell is None:
+            out["ev_hv_unknown"].append(f"{canonical}(항목 없음)")
             continue
-        st = _norm_state(v)
-        out["ev_hv"][canonical] = {"raw": v, "state": st}
-        if st == "불량":
-            out["ev_hv_bad"].append(f"{canonical}({v})")
+        val, why = _pick_selected(cell, "state")
+        out["ev_hv"][canonical] = {"state": val, "why": why,
+                                   "raw": cell.get_text(" ", strip=True)[:40]}
+        if val == "불량":
+            out["ev_hv_bad"].append(canonical)
+        elif val is None:
+            out["ev_hv_unknown"].append(f"{canonical}({why})")
 
     return out
 
@@ -1127,43 +1263,56 @@ def normalize_inspection_page(parsed: dict) -> dict:
     """파싱 결과를 수집 컬럼으로 평탄화하고 등급 감점을 계산한다."""
     f = parsed.get("fields", {})
     repairs = parsed.get("repairs", [])
-    res = score_repairs([{"part": r["part"], "status": r["status"]} for r in repairs])
 
-    notes = []
+    # 상태 부호를 못 읽은 부위는 'R'(방식 미상)로 채점한다.
+    gradable = [{"part": r["part"],
+                 "status": r["status"] if r.get("status_known") else "R"}
+                for r in repairs]
+    res = score_repairs(gradable)
+
+    notes, unknown_status = [], []
     for r in repairs:
-        g = next((x for x in res["entries"] if x["part"] == r["part"]
-                  and x["status"] == r["status"]), None)
+        st = r["status"] if r.get("status_known") else "R"
+        g = next((x for x in res["entries"]
+                  if x["part"] == r["part"] and x["status"] == st), None)
         if not g:
             continue
         pos = f"({r['position']})" if r["position"] else ""
-        notes.append(f"{r['part']}{pos} {g['status_label']}({r['status']}) — "
+        notes.append(f"{r['part']}{pos} {g['status_label']}({st}) — "
                      f"{g['rank_label']}, {g['desc']}")
+        if not r.get("status_known"):
+            unknown_status.append(f"{r['part']}{pos}")
 
-    gauge = _norm_state(f.get("mileage_gauge_state", "")) if f.get("mileage_gauge_state") else None
-
+    ranks_read = len(parsed.get("rank_sections", {}))
     return {
         "page_available": parsed.get("page_available", False),
+        "page_ranks_read": ranks_read,
         "page_repair_notes": " | ".join(dict.fromkeys(notes)),
-        "page_repair_penalty": res["penalty"] if repairs else "",
+        "page_repair_penalty": res["penalty"] if repairs else (0.0 if ranks_read else ""),
         "page_worst_rank": res["worst_rank"] or "",
         "page_worst_status": res.get("worst_status") or "",
+        "page_status_unknown": ", ".join(unknown_status),
         "page_unmatched_parts": ", ".join(parsed.get("unmatched_parts", [])),
-        "page_mileage_gauge": gauge or (f.get("mileage_gauge_state") or ""),
-        "page_mileage": to_int(f.get("page_mileage")),
-        "page_vin_state": f.get("vin_state", ""),
-        "page_tuning": f.get("tuning", ""),
-        "page_special_history": f.get("special_history", ""),
-        "page_usage_change": f.get("usage_change", ""),
-        "page_recall": f.get("recall", ""),
-        "page_recall_done": f.get("recall_done", ""),
-        "page_accident_history": f.get("accident_history", ""),
-        "page_simple_repair": f.get("simple_repair", ""),
+        # 상태값들 — None 이면 '' (판정 불가). '불량' 으로 넘기지 않는다.
+        "page_mileage_gauge": f.get("mileage_gauge_state") or "",
+        "page_mileage": f.get("page_mileage"),
+        "page_vin_state": f.get("vin_state") or "",
+        "page_tuning": f.get("tuning") or "",
+        "page_special_history": f.get("special_history") or "",
+        "page_usage_change": f.get("usage_change") or "",
+        "page_recall": f.get("recall") or "",
+        "page_recall_done": f.get("recall_done") or "",
+        "page_accident_history": f.get("accident_history") or "",
+        "page_simple_repair": f.get("simple_repair") or "",
         "page_first_registration": f.get("first_registration", ""),
         "page_inspection_valid": f.get("inspection_valid", ""),
         "page_inspector_note": (f.get("inspector_note", "") or "")[:400],
         "page_detail_bad": ", ".join(parsed.get("detail_bad", [])),
+        "page_detail_unknown": ", ".join(parsed.get("detail_unknown", [])),
         "page_ev_hv_bad": ", ".join(parsed.get("ev_hv_bad", [])),
-        "page_ev_hv_checked": len(parsed.get("ev_hv", {})),
+        "page_ev_hv_unknown": ", ".join(parsed.get("ev_hv_unknown", [])),
+        "page_ev_hv_checked": sum(1 for v in parsed.get("ev_hv", {}).values()
+                                  if v.get("state")),
         "page_parse_note": parsed.get("parse_note", ""),
     }
 
@@ -1288,7 +1437,8 @@ def score_comment_parts(comment: str) -> dict:
 
 
 def normalize_inspection(inspection: Any) -> dict:
-    """성능점검 응답에서 누유 / 부식 / 타이어 / 수리 부위를 뽑는다."""
+    """성능점검 API 응답 (보조 소스)."""
+    import config as _cfg
     out = {
         "inspection_available": bool(inspection),
         "leak_note": None,
@@ -1391,13 +1541,26 @@ def normalize_inspection(inspection: Any) -> dict:
     tree = score_repairs(find_repair_entries(inspection))
     out["diagnostics"] = " | ".join(dict.fromkeys(tree.get("diagnostics", []))) or None
 
+    # 코멘트 파싱은 보조 수단이다. 성능기록부 페이지가 부위별 랭크를 정확히
+    # 주므로 페이지를 읽었으면 코멘트는 쓰지 않는다. 딜러 자유 기술이라
+    # 면책문구에서 엉뚱한 단어를 부위로 잡는 일이 잦다.
+    if not _cfg.USE_COMMENT_FALLBACK:
+        out["repair_notes"] = None
+        out["repair_penalty"] = None
+        out["repair_worst_rank"] = None
+        out["repair_worst_status"] = None
+        out["repair_source"] = None
+        out["repair_unclassified"] = None
+        out["comment_accident_mentions"] = None
+        out["battery_pack_damage"] = None
+        return out
+
     res = score_comment_parts(out.get("insp_comments") or "")
     out["repair_notes"] = " | ".join(g["note"] for g in res["entries"]) or None
     out["repair_penalty"] = res["penalty"]
     out["repair_worst_rank"] = res["worst_rank"]
     out["repair_worst_status"] = res.get("worst_status")
     out["repair_source"] = "점검자 코멘트" if res["entries"] else None
-    # 미분류는 코멘트에서 나온 것만 보고한다 (구어체 표현을 늘려가기 위함)
     out["repair_unclassified"] = ", ".join(res.get("unmatched", [])) or None
     out["comment_accident_mentions"] = res.get("accident_mentions") or None
     out["battery_pack_damage"] = any(g["rank"] == "배터리팩" for g in res["entries"])
@@ -1680,11 +1843,22 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         insp_summary = " / ".join(bits)[:300]
 
     rec = normalize_record(record)
-    insp = normalize_inspection(inspection)
 
     # 성능기록부 HTML 페이지가 주 소스. API 는 보조.
+    # 페이지를 '먼저' 읽어야 코멘트 폴백을 쓸지 말지 정할 수 있다.
     page = (normalize_inspection_page(parse_inspection_page(inspection_html))
             if inspection_html else {})
+
+    import config as _cfg2
+    _saved = _cfg2.USE_COMMENT_FALLBACK
+    if page.get("page_ranks_read"):
+        # 페이지에서 랭크를 읽었으면 코멘트 파싱은 쓰지 않는다.
+        _cfg2.USE_COMMENT_FALLBACK = False
+    try:
+        insp = normalize_inspection(inspection)
+    finally:
+        _cfg2.USE_COMMENT_FALLBACK = _saved
+
     _acc_lines, _acc_verdict = describe_accidents(rec)
 
     owner_changes = rec["owner_change_count"]

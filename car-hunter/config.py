@@ -256,23 +256,46 @@ INSPECTION_SYMBOLS = {
     "ⓣ": "T", "Ⓣ": "T",
 }
 
-# 페이지에서 라벨/값으로 읽어 올 항목들. (표준키, 페이지 라벨 후보들)
+# 페이지에서 읽어 올 항목들. (표준키, 라벨 후보, 값 종류)
+#   "state"  — 양호/불량 중 '선택된' 것을 마크업으로 판별
+#   "yesno"  — 있음/없음 중 선택된 것
+#   "text"   — 자유 문자열
+#   "number" — 숫자
 INSPECTION_PAGE_FIELDS = [
-    ("mileage_gauge_state", ["주행거리 계기상태", "계기상태", "주행거리계기"]),
-    ("page_mileage",        ["주행거리", "주행거리 (km)"]),
-    ("vin_state",           ["차대번호 표기", "차대번호"]),
-    ("tuning",              ["튜닝"]),
-    ("special_history",     ["특별이력", "특별 이력"]),
-    ("usage_change",        ["용도변경", "용도 변경"]),
-    ("recall",              ["리콜대상", "리콜 대상"]),
-    ("recall_done",         ["이행여부", "리콜 이행", "이행 여부"]),
-    ("accident_history",    ["사고이력", "사고 이력"]),
-    ("simple_repair",       ["단순수리", "단순 수리"]),
-    ("first_registration",  ["최초등록일", "최초 등록일"]),
-    ("inspection_valid",    ["검사유효기간", "검사 유효기간"]),
-    ("inspector_note",      ["특기사항", "점검자 의견", "점검자의견"]),
+    ("mileage_gauge_state", ["주행거리 계기상태", "계기상태", "주행거리계기"], "state"),
+    ("page_mileage",        ["주행거리"], "number"),
+    ("vin_state",           ["차대번호 표기", "차대번호표기"], "state"),
+    ("tuning",              ["튜닝"], "yesno"),
+    ("special_history",     ["특별이력", "특별 이력"], "yesno"),
+    ("usage_change",        ["용도변경", "용도 변경"], "yesno"),
+    ("recall",              ["리콜대상", "리콜 대상"], "yesno"),
+    ("recall_done",         ["이행여부", "리콜 이행", "이행 여부"], "yesno"),
+    ("accident_history",    ["사고이력", "사고 이력"], "yesno"),
+    ("simple_repair",       ["단순수리", "단순 수리"], "yesno"),
+    ("first_registration",  ["최초등록일", "최초 등록일"], "text"),
+    ("inspection_valid",    ["검사유효기간", "검사 유효기간"], "text"),
+    ("inspector_note",      ["특기사항", "점검자 의견", "점검자의견"], "text"),
 ]
 
+# 선택된 값을 나타내는 표시들. HTML 은 선택지를 양쪽 다 적어 두고
+# 굵기/색/클래스로만 실제 판정을 구분한다. 텍스트만 읽으면
+# "양호 불량" 을 통째로 값으로 읽어 멀쩡한 차가 전부 불량이 된다.
+SELECTED_MARKERS = {
+    "tags": ["strong", "b", "em"],
+    "class_on": ["on", "active", "select", "selected", "checked", "current",
+                 "chk", "bold", "red", "point", "txt_on", "is-on"],
+    "class_off": ["off", "gray", "grey", "dim", "disable", "disabled",
+                  "light", "unchecked", "txt_off", "is-off"],
+    "style_on": ["font-weight:bold", "font-weight: bold", "font-weight:700",
+                 "font-weight:600", "color:#000", "color:#111", "color:#222",
+                 "color:red", "color:#f", "color:black"],
+    "style_off": ["color:#9", "color:#a", "color:#b", "color:#c", "color:#d",
+                  "color:gray", "color:grey", "color:silver"],
+    # 이미지로 표시되는 경우
+    "img_on": ["on", "checked", "active", "sel"],
+}
+
+# 자동차 세부상태 — 항목별 양호/불량
 # 자동차 세부상태 — 항목별 양호/불량
 INSPECTION_DETAIL_ITEMS = [
     "누유", "냉각수누수", "냉각수 누수", "변속기", "동력전달", "조향",
@@ -292,8 +315,12 @@ BAD_STATE_WORDS = ["불량", "미흡", "이상", "누유있음", "있음(불량)
 GOOD_STATE_WORDS = ["양호", "없음", "해당없음", "정상"]
 
 # ---------------------------------------------------------------------------
-# 점검자 코멘트에서 수리 부위 뽑기
+# 점검자 코멘트에서 수리 부위 뽑기 (보조 수단 — 기본 꺼짐)
 # ---------------------------------------------------------------------------
+# 성능기록부 페이지가 부위별 랭크를 정확히 주므로 코멘트 파싱은 필요 없다.
+# 페이지를 못 읽었을 때만 켜진다. 코멘트는 딜러 자유 기술이라 오탐이 잦다.
+USE_COMMENT_FALLBACK = True   # 페이지를 못 읽었을 때만 적용됨
+
 # 성능점검 API 는 outers 가 비어 있고 모든 항목의 status 가 '-' 로 와서
 # 부위별 판정값이 실리지 않는다. 실제 수리 부위는 점검자 코멘트에
 # 구어체로 적혀 있다.
@@ -349,6 +376,9 @@ COMMENT_BOILERPLATE = [
 
 # 부위명이 아닌 것이 확실한 단어 (미분류 보고에서 제외)
 COMMENT_STOPWORDS = {
+    "비금속", "FRP", "플라스틱", "탈부착", "부품", "점검", "대상", "제외",
+    "제외됩니다", "됩니다", "합니다", "입니다", "해당", "관련", "경우",
+    "이상", "미만", "이하", "초과", "기준", "가능", "불가", "여부",
     "중고차", "특성상", "부분적", "부분적인", "판독불가", "보증사항", "제외됨",
     "내차", "타차", "피해", "가해", "정비이력", "수리이력", "재질", "카본",
     "있습니다", "있음", "없음", "회", "원", "및", "등", "차량", "매물",

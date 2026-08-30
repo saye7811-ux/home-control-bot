@@ -299,17 +299,22 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
 
     # 6) 고전원전기장치 불량 — 전기차 핵심 안전 항목
     ev_bad = [x for x in str(row.get("page_ev_hv_bad") or "").split(", ") if x]
+    ev_unknown = [x for x in str(row.get("page_ev_hv_unknown") or "").split(", ") if x]
     if ev_bad:
         amt = P["ev_hv_bad_manwon"] * len(ev_bad)
         out["breakdown"].append((f"고전원전기장치 불량 ({', '.join(ev_bad)})",
                                  round(amt, 0)))
         fair += amt
-    elif to_int(row.get("page_ev_hv_checked")):
-        pass   # 3항목 모두 양호 — 조정 없음
-    else:
+    if ev_unknown:
+        # 판정 불가를 '불량' 으로 치지 않는다. 감점 없이 사실만 남긴다.
+        out["unknowns"].append(f"고전원전기장치 판정 불가: {', '.join(ev_unknown)[:120]}")
+    elif not ev_bad and not to_int(row.get("page_ev_hv_checked")):
         out["unknowns"].append("고전원전기장치 점검 결과 없음 (전기차 핵심 항목)")
 
     # 7) 자동차 세부상태 불량
+    det_unknown = [x for x in str(row.get("page_detail_unknown") or "").split(", ") if x]
+    if det_unknown:
+        out["unknowns"].append(f"세부상태 판정 불가: {', '.join(det_unknown)[:120]}")
     det_bad = [x for x in str(row.get("page_detail_bad") or "").split(", ") if x]
     if det_bad:
         amt = P["detail_bad_manwon"] * len(det_bad)
@@ -545,8 +550,12 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
                 bits.append(f"{lab} {n}회")
         minus.append("과거 용도 이력: " + (", ".join(bits) or "있음"))
     excluded_reasons = []
-    if str(row.get("page_mileage_gauge") or "") == "불량":
+    gauge = str(row.get("page_mileage_gauge") or "")
+    if gauge == "불량":
         excluded_reasons.append("주행거리 계기상태 불량 (성능기록부)")
+    elif not gauge and row.get("page_available"):
+        # 판정 불가를 불량으로 치지 않는다 — 멀쩡한 차를 걸러내면 안 된다
+        minus.append("주행거리 계기상태 판정 불가 (성능기록부 표기 확인 필요)")
     gap = to_int(row.get("mileage_gap_km"))
     if gap is not None and gap > M.get("exclude_over_km", 5000):
         excluded_reasons.append(f"주행거리 불일치 {gap:,}km")

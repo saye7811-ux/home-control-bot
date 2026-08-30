@@ -55,11 +55,13 @@ LISTING_FIELDS = [
     "encar_diagnosed", "encar_check", "direct_inspected",
     "page_available", "repair_grade_source", "page_repair_notes",
     "page_repair_penalty", "page_worst_rank", "page_worst_status",
-    "page_unmatched_parts", "page_mileage_gauge", "page_mileage",
+    "page_unmatched_parts", "page_status_unknown", "page_ranks_read",
+    "page_mileage_gauge", "page_mileage",
     "page_vin_state", "page_tuning", "page_special_history", "page_usage_change",
     "page_recall", "page_recall_done", "page_accident_history", "page_simple_repair",
     "page_first_registration", "page_inspection_valid", "page_inspector_note",
-    "page_detail_bad", "page_ev_hv_bad", "page_ev_hv_checked", "page_parse_note",
+    "page_detail_bad", "page_detail_unknown",
+    "page_ev_hv_bad", "page_ev_hv_unknown", "page_ev_hv_checked", "page_parse_note",
     "origin_price_manwon", "warranty", "view_count", "subscribe_count",
     "inspection_summary", "photo_url", "listing_url",
     "detail_fetched", "collected_at",
@@ -1026,6 +1028,97 @@ def cmd_collect(args) -> int:
     return 0
 
 
+def cmd_inspect_page(args) -> int:
+    """저장된 성능기록부 HTML 을 분석하고, 판정 불가 항목의 마크업을 보여준다.
+
+    파서가 값을 못 읽었을 때 '실제 HTML 이 어떻게 생겼는지' 를 그대로
+    보여주기 위한 것이다. 그 출력을 그대로 보내주면 파서를 맞출 수 있다.
+    """
+    path = args.inspect_page or os.path.join(
+        os.path.dirname(DETAILS_JSON), "raw_inspection_page.html")
+    if not os.path.isfile(path):
+        die(f"성능기록부 HTML 을 못 찾았습니다: {path}\n"
+            "`python collect.py --probe` 를 먼저 실행하세요.")
+    html_text = open(path, encoding="utf-8", errors="replace").read()
+
+    print("=" * 74)
+    print(f" 성능기록부 HTML 분석 — {path} ({len(html_text):,} bytes)")
+    print("=" * 74)
+
+    parsed = api.parse_inspection_page(html_text)
+    if parsed.get("parse_note"):
+        warn(parsed["parse_note"])
+
+    print("\n[랭크별 내용]")
+    for rank, body in (parsed.get("rank_sections") or {}).items():
+        print(f"  {rank:6} {body}")
+    if not parsed.get("rank_sections"):
+        warn("랭크 행을 못 찾았습니다.")
+
+    print(f"\n[수리 부위 {len(parsed['repairs'])}건]")
+    for r in parsed["repairs"]:
+        mark = "" if r.get("status_known") else "   <-- 상태 부호를 못 읽음"
+        print(f"  [{r['rank']:5}] {r['raw'][:24]:26} [{r['status']}]{mark}")
+    if parsed["unmatched_parts"]:
+        warn(f"부위를 못 알아본 랭크: {parsed['unmatched_parts']}")
+
+    print("\n[라벨 항목]")
+    unknown_keys = []
+    for key, _labels, kind in config.INSPECTION_PAGE_FIELDS:
+        v = parsed["fields"].get(key)
+        why = parsed["field_notes"].get(key, "")
+        if v in (None, ""):
+            unknown_keys.append(key)
+            print(f"  {key:22}= (판정 불가)   {why}")
+        else:
+            print(f"  {key:22}= {v!r:14} {why}")
+
+    print("\n[고전원전기장치]")
+    for k, v in (parsed.get("ev_hv") or {}).items():
+        print(f"  {k:22}= {v['state'] or '(판정 불가)':10} {v['why']}")
+    if parsed.get("ev_hv_unknown"):
+        warn(f"판정 불가: {parsed['ev_hv_unknown']}")
+
+    print("\n[자동차 세부상태]")
+    print(f"  불량      : {parsed.get('detail_bad') or '(없음)'}")
+    print(f"  판정 불가  : {parsed.get('detail_unknown') or '(없음)'}")
+
+    # --- 판정 불가 항목의 실제 마크업을 보여준다 ---
+    if unknown_keys or parsed.get("ev_hv_unknown") or not parsed["repairs"]:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html_text, "lxml")
+        print("\n" + "=" * 74)
+        print(" 판정 불가 항목의 실제 마크업 (이 부분을 그대로 보내주세요)")
+        print("=" * 74)
+
+        targets: list[str] = []
+        for key, labels, _kind in config.INSPECTION_PAGE_FIELDS:
+            if key in unknown_keys:
+                targets.append(labels[0])
+        for u in (parsed.get("ev_hv_unknown") or []):
+            targets.append(u.split("(")[0].strip())
+        if not parsed["repairs"]:
+            targets += ["1랭크", "2랭크", "A랭크"]
+
+        shown = 0
+        for label in dict.fromkeys(targets):
+            for tr in soup.find_all("tr"):
+                if label.replace(" ", "") not in tr.get_text(" ", strip=True).replace(" ", ""):
+                    continue
+                print(f"\n--- {label} ---")
+                print(str(tr)[:900])
+                shown += 1
+                break
+            if shown >= 8:
+                break
+        if not shown:
+            print("\n해당 라벨이 들어간 행을 못 찾았습니다. 페이지 앞부분:")
+            print(html_text[:1200])
+    else:
+        print("\n모든 항목을 읽었습니다.")
+    return 0
+
+
 def cmd_inspect_file(args) -> int:
     """저장된 성능점검 JSON 을 네트워크 없이 분석한다.
 
@@ -1179,6 +1272,9 @@ def main() -> int:
     p.add_argument("--probe", action="store_true", help="검색 API 1회 호출 후 스키마 덤프")
     p.add_argument("--discover", action="store_true", help="제조사/모델 facet 값 덤프")
     p.add_argument("--fixture", metavar="PATH", help="네트워크 없이 샘플 데이터로 실행")
+    p.add_argument("--inspect-page", dest="inspect_page", nargs="?",
+                   const="data/raw_inspection_page.html",
+                   help="저장된 성능기록부 HTML 을 분석 + 마크업 진단")
     p.add_argument("--inspect-file", dest="inspect_file", nargs="?",
                    const="data/raw_inspection.json",
                    help="저장된 성능점검 JSON 을 네트워크 없이 분석")
@@ -1200,6 +1296,8 @@ def main() -> int:
             return cmd_probe(args)
         if args.discover:
             return cmd_discover(args)
+        if args.inspect_page:
+            return cmd_inspect_page(args)
         if args.inspect_file:
             return cmd_inspect_file(args)
         if args.reparse:

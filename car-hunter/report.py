@@ -211,6 +211,15 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         if r.get("page_mileage_gauge"):
             ref.append(f'<div class="ref">※ 주행거리 계기상태: '
                        f'{_e(r["page_mileage_gauge"])}</div>')
+        elif r.get("page_available"):
+            ref.append('<div class="ref warnref">※ 주행거리 계기상태 판정 불가 '
+                       '— 성능기록부 표기 직접 확인 필요</div>')
+        if r.get("page_ev_hv_unknown"):
+            ref.append('<div class="ref warnref">※ 고전원전기장치 판정 불가: '
+                       + _e(r["page_ev_hv_unknown"])[:140] + '</div>')
+        if r.get("page_status_unknown"):
+            ref.append('<div class="ref warnref">※ 상태 부호를 못 읽은 부위: '
+                       + _e(r["page_status_unknown"])[:120] + '</div>')
         if r.get("page_unmatched_parts"):
             ref.append('<div class="ref warnref">※ 성능기록부에서 못 알아본 부위: '
                        + _e(r["page_unmatched_parts"]) + '</div>')
