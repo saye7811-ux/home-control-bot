@@ -233,6 +233,12 @@ def vin_option_value(row: dict) -> dict:
     if not rec:
         return out
 
+    # 값이 없으면(키 자체가 없거나 null) '아직 확인 안 함' 이다.
+    # 이걸 False 로 읽으면 '확인했는데 없음' 으로 둔갑해서, 보지도 않은
+    # 매물에 'VIN 검증됨' 배지가 붙는다.
+    if rec.get("air_suspension") is None or rec.get("rear_steering") is None:
+        out["state"] = "unverified"
+        return out
     air = bool(rec.get("air_suspension"))
     rear = bool(rec.get("rear_steering"))
     out.update({"air": air, "rear": rear,
