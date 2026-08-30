@@ -774,23 +774,16 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
     if not airsus_hits and any(k in hay_flat for k in kws):
         airsus_hits.append("(옵션 목록 외 텍스트에서 키워드 발견)")
 
-    # 에어서스 판별이 이 프로젝트의 핵심이므로 '모른다' 를 '없다' 로
-    # 뭉개지 않는다.
+    # 엔카 쪽 에어서스 정보는 '판정' 이 아니라 '판매자가 뭐라고 썼는가' 일 뿐이다.
     #
-    # 주의: options.etc 에 딜러가 적어 둔 한글 몇 개가 있다고 해서 옵션을
-    # 다 읽은 것이 아니다. 권위 있는 목록은 options.standard 이고 그게
-    # 코드로 와서 못 읽었다면, 이름이 일부 있어도 여전히 '판별 불가' 다.
-    # 이걸 '옵션명에 없음' 으로 적으면 에어서스 차량이 조용히 탈락한다.
+    # 옵션 목록과 설명글은 딜러가 홍보용으로 쓴 자유 텍스트다. 없는데 적어
+    # 두거나 있는데 안 적는 일이 흔하고, 실제로 "코드에 없으니 미장착" 으로
+    # 본 매물의 설명에 "에어서스펜션 옵션적용차량" 이 적혀 있던 반례가 있었다.
+    # 그래서 여기서는 결론을 내지 않고 언급 여부만 남긴다.
+    # 실제 판정은 3단계(헤이딜러 출고 기록)에서 한다.
     unresolved = [c for c in option_codes if not code_map or c not in code_map]
-
-    if airsus_hits:
-        airsus_status = "확인"
-    elif unresolved:
-        airsus_status = f"판별불가(미해석 코드 {len(unresolved)}개)"
-    elif options:
-        airsus_status = "옵션명에 없음"
-    else:
-        airsus_status = "판별불가(옵션 없음)"
+    airsus_status = ("판매자 설명에 언급 있음" if airsus_hits
+                     else "판매자 설명에 언급 없음")
 
     # 성능점검 요약: 사람이 읽을 짧은 문장으로
     insp_summary = ""
@@ -852,6 +845,7 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "encar_check": _yes(encar_check),
         "direct_inspected": _yes(direct_inspected),
         "airsus_status": airsus_status,
+        "seller_airsus_mention": bool(airsus_hits),
         "accident_free": accident_free and not (my_acc or other_acc),
         "accident_my_count": my_acc or 0,
         "accident_other_count": other_acc or 0,

@@ -37,7 +37,7 @@ LISTING_FIELDS = [
     "accident_my_cost_won", "owner_change_count",
     "flood_or_total_loss", "rental_or_commercial", "one_owner",
     "encar_diagnosed", "encar_check", "direct_inspected",
-    "has_airsus_keyword", "airsus_status", "airsus_keyword_hits",
+    "seller_airsus_mention", "airsus_status", "airsus_keyword_hits",
     "options_count", "options", "option_codes", "option_codes_unresolved",
     "option_source",
     "origin_price_manwon", "warranty", "view_count", "subscribe_count",
@@ -733,11 +733,10 @@ def collect_target(client, target: dict, limit: int, with_detail: bool,
         listing["collected_at"] = datetime.now().isoformat(timespec="seconds")
 
     detailed = [r for r in rows if r.get("detail_fetched")]
-    undet = [r["vehicle_id"] for r in detailed
-             if str(r.get("airsus_status", "")).startswith("판별불가")]
-    if undet:
-        warn(f"에어서스 판별 불가 {len(undet)}건 — 옵션이 코드로만 왔고 변환표가 없습니다. "
-             f"`--probe` 의 [10] 출력을 확인하세요.")
+    mentioned = sum(1 for r in detailed if r.get("seller_airsus_mention"))
+    if detailed:
+        log(f"  에어서스: 판매자 설명 언급 {mentioned}/{len(detailed)}건 "
+            f"(참고용 — 점수 미반영, 헤이딜러로 확인)")
 
     missing_plate = [r["vehicle_id"] for r in detailed if not r.get("plate_no")]
     if missing_plate:
@@ -826,7 +825,7 @@ def cmd_reparse(args) -> int:
         warn("옵션 코드 변환표가 없습니다 (data/option_codes.json). "
              "`python infer_options.py` 로 만들 수 있습니다.")
 
-    rows, before, after = [], 0, 0
+    rows = []
     for vid, bucket in details.items():
         if not isinstance(bucket, dict):
             continue
@@ -838,9 +837,6 @@ def cmd_reparse(args) -> int:
         listing["model_key"] = target["key"]
         listing["model_label"] = target["label"]
 
-        if str(old.get("airsus_status", "")).startswith("판별불가"):
-            before += 1
-
         if bucket.get("detail") is not None:
             listing.update(api.normalize_detail(
                 str(vid), bucket.get("detail"), bucket.get("record"),
@@ -850,8 +846,6 @@ def cmd_reparse(args) -> int:
         else:
             listing["detail_fetched"] = old.get("detail_fetched", False)
 
-        if str(listing.get("airsus_status", "")).startswith("판별불가"):
-            after += 1
         listing["collected_at"] = old.get("collected_at", "")
         rows.append(listing)
 
@@ -859,15 +853,10 @@ def cmd_reparse(args) -> int:
     log(f"재해석 완료: {LISTINGS_CSV} ({len(rows)}건)")
 
     detailed = [r for r in rows if r.get("detail_fetched")]
-    ok_air = sum(1 for r in detailed if r.get("airsus_status") == "확인")
+    mentioned = sum(1 for r in detailed if r.get("seller_airsus_mention"))
     print(f"\n  상세 확보 {len(detailed)}건 중")
-    print(f"    에어서스 확인   : {ok_air}건")
-    print(f"    판별 불가       : {after}건 (재해석 전 {before}건)")
-    if before and after < before:
-        print(f"    -> {before - after}건이 새로 판별되었습니다.")
-    elif after:
-        print("    -> 변환표에 해당 코드가 없습니다. "
-              "`python infer_options.py` 를 확인하세요.")
+    print(f"    판매자 설명에 에어서스 언급: {mentioned}건 (참고용, 점수 미반영)")
+    print("    에어서스 실제 장착 여부는 헤이딜러 숨은이력에서 확정합니다.")
     return 0
 
 

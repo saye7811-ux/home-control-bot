@@ -152,8 +152,14 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         plus = [s for s in (r.get("reasons_plus") or "").split(" ; ") if s]
         minus = [s for s in (r.get("reasons_minus") or "").split(" ; ") if s]
 
-        if str(r.get("airsus_status", "")).startswith("판별불가"):
-            minus = list(minus) + ["에어서스 여부 확인 불가 (옵션 정보 부족)"]
+        # 엔카의 에어서스 언급은 딜러 코멘트라 점수에 넣지 않는다. 참고 표시만.
+        seller_air = str(r.get("seller_airsus_mention", "")).strip().lower() in ("true", "1")
+        if stage != "final":
+            note = ("판매자 설명에 에어서스 언급 있음" if seller_air
+                    else "판매자 설명에 에어서스 언급 없음")
+            ref = [f'<div class="ref">※ {_e(note)} — 딜러 작성 문구라 신뢰 불가</div>']
+        else:
+            ref = []
 
         hidden_bits = []
         if stage == "final":
@@ -194,6 +200,7 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         <td class="reasons">
           {"".join(f'<div class="p">＋ {_e(s)}</div>' for s in plus) or '<div class="muted">-</div>'}
           {"".join(f'<div class="m">－ {_e(s)}</div>' for s in minus)}
+          {"".join(ref)}
         </td>
         <td class="links">{" ".join(links) or "-"}</td>
       </tr>""")
@@ -235,12 +242,16 @@ th{font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap}
 td.num,th.num{text-align:right;white-space:nowrap}
 td.rank{font-weight:700;color:var(--muted);width:36px}
 .plate{display:inline-block;background:var(--plate-bg);color:var(--plate-fg);
-font-weight:700;letter-spacing:.5px;padding:3px 9px;border-radius:5px;
-font-size:15px;font-family:ui-monospace,Menlo,monospace}
+font-weight:800;letter-spacing:1px;padding:6px 14px;border-radius:6px;
+font-size:20px;font-family:ui-monospace,Menlo,monospace;
+border:2px solid var(--plate-fg)}
 .hidden-tag{margin-top:5px;font-size:12px;color:var(--muted)}
 .score{font-size:17px;font-weight:700}
 .reasons{max-width:360px;font-size:12.5px}
 .reasons .p{color:var(--good)}.reasons .m{color:var(--bad)}
+.reasons .ref{color:var(--muted);font-size:11.5px;margin-top:6px;
+padding-top:5px;border-top:1px dashed var(--bd)}
+.banner.ok{background:transparent;border:1px solid var(--good);color:inherit}
 .links a{color:var(--good);text-decoration:none;margin-right:8px;white-space:nowrap}
 .links a:hover{text-decoration:underline}
 .muted{color:var(--muted)}.small{font-size:12px}
@@ -255,9 +266,20 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
     stage_label = "최종 (헤이딜러 숨은이력 반영)" if stage == "final" else "1차 (엔카 데이터만)"
     banner = ""
     if stage != "final":
-        banner = ('<div class="banner">1차 결과입니다. 아래 <b>차량번호</b>를 헤이딜러 '
-                  "'숨은이력찾기'에서 조회한 뒤 <code>merge.py</code> 로 병합하면 "
-                  "최종 순위가 나옵니다.</div>")
+        banner = (
+            '<div class="banner"><b>1차 결과 — 엔카의 객관적 데이터만 반영했습니다.</b><br>'
+            '가격 · 연식 · 주행거리 · 신차가 · 사고 유무 · 엔카진단 · 소유자 변경까지가 '
+            '여기서 쓴 전부입니다.<br>'
+            '<b>에어서스와 배터리 제조사는 아직 반영되지 않았습니다.</b> 엔카의 옵션 목록과 '
+            '판매자 설명글은 딜러가 쓴 홍보 문구라 누락·과장이 흔해 판정 근거로 쓰지 않습니다.<br>'
+            '아래 <b>차량번호</b>를 헤이딜러 \'숨은이력찾기\'에서 조회한 뒤 '
+            '<code>merge.py</code> 로 병합하면 출고 기록 기반으로 최종 순위가 확정됩니다.</div>')
+    else:
+        banner = (
+            '<div class="banner ok"><b>최종 결과 — 헤이딜러 출고 기록이 반영되었습니다.</b><br>'
+            '에어서스 장착 여부와 배터리 제조사는 출고 기록에 근거한 확정 정보이며, '
+            '1차 점수를 뒤집을 만큼 크게 반영됩니다. 숨은이력을 조회하지 않은 매물은 '
+            '해당 항목이 미반영 상태이므로 같은 기준으로 비교되지 않습니다.</div>')
 
     note_html = ""
     if notes:
@@ -276,6 +298,7 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
   <div class="grid">{"".join(_market_card(m, rs) for m, rs in models)}</div>
 
   <h2>종합점수 순위</h2>
+  <p class="sub">1차 배점: 시세 잔차 40 · 배터리 보증 잔여 20 · 신차가 대비 감가율 10 · 무사고 8 · 엔카진단 5 · 1인소유 4 (감점: 과주행 6~12, 침수·전손 40, 렌트·영업용 10)</p>
   <div class="tablewrap">
     <table>
       <thead><tr>

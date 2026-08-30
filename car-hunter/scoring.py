@@ -202,6 +202,21 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
                          f"{row.get('battery_binding')} 기준)")
     row["score_battery"] = round(battery_score, 2)
 
+    # --- 신차가 대비 감가율 ---
+    # 같은 모델 안에서는 시세 잔차와 겹치지만, 모델이 다른 매물을 한 줄로
+    # 세울 때는 이쪽이 실질적인 진입가 차이를 보여준다. 그래서 배점은 작다.
+    dep = to_float(row.get("depreciation_pct"))
+    lo, hi = S["depreciation_span"]
+    if dep is None:
+        dep_score = S["depreciation_max_pts"] * 0.5      # 신차가 정보 없음 → 중립
+    else:
+        dep_score = _clamp((dep - lo) / (hi - lo), 0.0, 1.0) * S["depreciation_max_pts"]
+        if dep >= hi:
+            plus.append(f"신차가 대비 {dep:.0f}% 감가 (진입가 낮음)")
+        elif dep <= lo:
+            minus.append(f"신차가 대비 감가 {dep:.0f}% 에 그침")
+    row["score_depreciation"] = round(dep_score, 2)
+
     # --- 과주행 ---
     annual = to_int(row.get("annual_km"))
     over_pen = 0.0
@@ -222,10 +237,12 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
         bonus += S["bonus"]["encar_diagnosed"]; plus.append("엔카진단 매물")
     if _truthy(row.get("one_owner")):
         bonus += S["bonus"]["one_owner"]; plus.append("1인 소유")
-    if _truthy(row.get("has_airsus_keyword")):
-        bonus += S["bonus"]["airsus_keyword"]
-        plus.append(f"에어서스 추정 옵션 ({row.get('airsus_keyword_hits') or '키워드 일치'})")
     row["bonus_total"] = round(bonus, 2)
+
+    # 에어서스는 점수에 넣지 않는다. 엔카의 옵션 목록/판매자 설명은 딜러가
+    # 쓴 홍보 문구라 누락과 과장이 흔하다 (실측 반례 있음). 참고로만 남기고
+    # 실제 판정은 3단계 헤이딜러 출고 기록에서 한다.
+    row["seller_airsus_mention"] = _truthy(row.get("has_airsus_keyword"))
 
     # --- 감점 ---
     penalty = over_pen
@@ -241,7 +258,7 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
         minus.append(f"보험 사고이력 (내차 {acc_my}건 / 상대차 {acc_ot}건)")
     row["penalty_total"] = -round(penalty, 2)
 
-    total = value_score + battery_score + bonus - penalty
+    total = value_score + battery_score + dep_score + bonus - penalty
     row["score_stage2"] = round(total, 2)
     row["score_total"] = round(total, 2)
     row["reasons_plus"] = " ; ".join(plus)
@@ -298,19 +315,19 @@ def apply_hidden(row: dict, hidden: dict) -> dict:
     row["adj_battery_maker"] = round(maker_adj, 2)
 
     # 2) 에어서스 확정 여부
+    # 에어서스는 여기서 '처음으로' 확정된다. 1차 점수에는 들어가 있지 않으므로
+    # 회수할 가점도 없다.
     air = hidden.get("airsus")           # True / False / None(불명)
     row["hidden_airsus"] = "" if air is None else bool(air)
     air_adj = 0.0
     if air is True:
         air_adj = config.AIRSUS_CONFIRMED_BONUS
-        plus.append("에어서스 출고 장착 확정")
+        plus.append("에어서스 출고 장착 확정 (헤이딜러)")
     elif air is False:
         air_adj = -config.AIRSUS_ABSENT_PENALTY
-        minus.append("에어서스 미장착 확정")
-        # 1차에서 키워드로 준 가점은 회수
-        if _truthy(row.get("has_airsus_keyword")):
-            air_adj -= config.SCORING["bonus"]["airsus_keyword"]
-            minus.append("1차 에어서스 추정 가점 회수")
+        minus.append("에어서스 미장착 확정 (헤이딜러)")
+        if _truthy(row.get("seller_airsus_mention")):
+            minus.append("판매자 설명에는 에어서스가 언급돼 있었음 — 설명과 불일치")
     adj_total += air_adj
     row["adj_airsus"] = round(air_adj, 2)
 

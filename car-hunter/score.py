@@ -34,9 +34,10 @@ SCORED_FIELDS = [
     "accident_free", "accident_my_count", "accident_other_count",
     "accident_my_cost_won", "owner_change_count",
     "flood_or_total_loss", "rental_or_commercial", "one_owner", "encar_diagnosed",
-    "has_airsus_keyword", "airsus_status", "airsus_keyword_hits",
+    "seller_airsus_mention", "airsus_status", "airsus_keyword_hits",
     "option_source", "warranty", "view_count", "subscribe_count",
     "score_value", "score_battery", "bonus_total", "penalty_overrun", "penalty_total",
+    "score_value", "score_battery", "score_depreciation",
     "score_stage2", "score_total", "market_confidence", "detail_fetched",
     "reasons_plus", "reasons_minus",
     "inspection_summary", "options", "photo_url", "listing_url",
@@ -75,12 +76,19 @@ def print_market_summary(market, rows) -> None:
 
 def print_top(rows, n) -> None:
     print(f"\n{_hr('━')}")
-    print(f" 종합점수 상위 {min(n, len(rows))}대  —  아래 [차량번호]를 헤이딜러"
-          f" '숨은이력찾기'에 입력하세요")
+    print(f" 종합점수 상위 {min(n, len(rows))}대")
+    print(_hr('━'))
+    print(" 이 점수는 엔카의 객관적 데이터만 반영한 1차 결과입니다.")
+    print(" 에어서스와 배터리 제조사는 아직 반영되지 않았습니다 —")
+    print(" 엔카 옵션/판매자 설명은 딜러가 쓴 홍보 문구라 판정 근거로 쓰지 않습니다.")
+    print("")
+    print(" ▼ 아래 큰 글씨 차량번호를 헤이딜러 앱 '숨은이력찾기'에 입력하세요.")
     print(_hr('━'))
     for r in rows[:n]:
         plate = r.get("plate_no") or "(차량번호 미확보)"
-        print(f"\n  #{r['rank']:<2}  ★ 차량번호  【 {plate} 】   점수 {r['score_total']}")
+        print(f"\n  ┏{'━' * 34}┓")
+        print(f"  ┃  #{r['rank']:<2}   {plate:^20}   ┃   점수 {r['score_total']}")
+        print(f"  ┗{'━' * 34}┛")
         print(f"       {r.get('model_label')} · {r.get('trim')} · {r.get('region')}")
         print(f"       {fmt_manwon(r.get('price_manwon'))}"
               f"  (시세예측 {fmt_manwon(r.get('predicted_price_manwon'))},"
@@ -97,6 +105,9 @@ def print_top(rows, n) -> None:
         for s in (r.get("reasons_minus") or "").split(" ; "):
             if s:
                 print(f"       - {s}")
+        mention = str(r.get("seller_airsus_mention", "")).strip().lower() in ("true", "1")
+        print(f"       ※ 에어서스: 판매자 설명에 언급 {'있음' if mention else '없음'}"
+              f" (딜러 문구라 신뢰 불가 — 헤이딜러로 확인 필요, 점수 미반영)")
         if r.get("listing_url"):
             print(f"       {r['listing_url']}")
 
