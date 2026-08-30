@@ -1,32 +1,43 @@
 # ---------------------------------------------------------------------------
-#  car-hunter — 매일 클라우드에서 수집·채점하고 리포트를 배포한다
+#  car-hunter — 리포트를 만들어 GitHub Pages 에 올린다 (배포 전용)
 # ---------------------------------------------------------------------------
-#  PC 가 꺼져 있어도 GitHub 서버에서 돌아간다. 끝나면 GitHub Pages 에
-#  report.html 이 올라가므로 폰에서 주소 하나만 열면 최신 결과가 보인다.
+#  수집은 여기서 하지 않는다. 엔카가 데이터센터 IP 를 막기 때문이다.
+#  GitHub 러너는 Azure 대역(예: 20.109.36.224)이라 엔카가 HTTP 407 을
+#  돌려준다. 프록시 문제가 아니라 엔카 서버가 직접 거절하는 것이라
+#  러너를 바꿔도 결과가 같다.
+#
+#  그래서 역할을 나눴다:
+#    PC        run_weekly.bat  ->  수집 · 채점 · data 커밋 · push
+#    이 워크플로  push 를 받아   ->  리포트를 다시 만들고 Pages 에 배포
+#
+#  채점(score.py)은 네트워크가 필요 없다. 저장소에 커밋된 listings.csv 만
+#  있으면 되므로 클라우드에서도 문제없이 돈다. 그래서 report.html 자체는
+#  커밋하지 않고 여기서 다시 만든다 — 배포본이 항상 커밋된 데이터와 일치한다.
 #
 #  수동 실행: 저장소 > Actions > car-hunter > Run workflow
 # ---------------------------------------------------------------------------
 name: car-hunter
 
 on:
-  schedule:
-    # UTC 기준이다. 21:00 UTC = 한국 시간 06:00 (다음날 아침)
-    - cron: "0 21 * * *"
-  workflow_dispatch:        # 버튼으로 즉시 실행할 수 있게
+  push:
+    branches: [main]
+    paths:
+      - "car-hunter/data/**"      # PC 가 새 수집 결과를 올렸을 때
+      - "car-hunter/*.py"         # 채점·리포트 코드가 바뀌었을 때
+      - ".github/workflows/car-hunter.yml"
+  workflow_dispatch:              # 버튼으로 즉시 배포
 
 permissions:
-  contents: write           # 수집 결과를 저장소에 되돌려 커밋
-  pages: write              # GitHub Pages 배포
+  contents: read
+  pages: write
   id-token: write
 
-# 앞 실행이 아직 돌고 있으면 겹치지 않게 한다.
-# 취소하지 않고 기다리는 이유: 중간에 끊기면 data 가 어중간해진다.
 concurrency:
-  group: car-hunter
-  cancel-in-progress: false
+  group: car-hunter-pages
+  cancel-in-progress: true        # 배포만 하므로 최신 것만 살리면 된다
 
 jobs:
-  collect:
+  build:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,75 +53,25 @@ jobs:
       - name: 의존성 설치
         run: pip install -r requirements.txt
 
-      # 엔카 원본 응답 캐시(details.json, 5MB 대)는 저장소에 넣지 않는다.
-      # 매일 커밋하면 저장소가 1년에 수 GB 로 불어나기 때문이다.
-      # 캐시가 없거나 만료되면 그날 하루 전량 수집으로 자동 복구된다.
-      - name: 응답 캐시 복원
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: car-hunter/data/details.json
-          key: encar-details-${{ github.run_id }}
-          restore-keys: |
-            encar-details-
-
-      # 엔카에 닿는지 먼저 본다. 클라우드 러너는 IP 대역이 데이터센터라
-      # 사이트가 막아 두는 경우가 있다 (첫 실행에서 HTTP 407 이 났다).
-      # 실패해도 워크플로를 멈추지 않고 진단만 남긴다.
-      - name: 엔카 연결 진단
-        continue-on-error: true
-        env:
-          UA: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
-          URL: "https://api.encar.com/search/car/list/general?count=true&q=(And.Hidden.N._.CarType.N.)&sr=%7CModifiedDate%7C0%7C1"
-        run: |
-          echo "--- 프록시 환경변수 ---"
-          env | grep -iE 'proxy' || echo '(없음)'
-          echo "--- 나가는 IP ---"
-          curl -s --max-time 15 https://api.ipify.org || echo "(확인 실패)"
-          echo
-          echo "--- 엔카 응답 헤더 ---"
-          curl -s -D - -o /dev/null --max-time 20 -A "$UA" "$URL" | head -15 || echo "연결 실패"
-
-
-      - name: 수집 (증분)
-        env:
-          PYTHONIOENCODING: utf-8
-          PYTHONUTF8: "1"
-        run: python collect.py
-
-      - name: 채점 + 리포트 생성
+      - name: 리포트 생성 (커밋된 데이터로 채점)
         env:
           PYTHONIOENCODING: utf-8
           PYTHONUTF8: "1"
         run: python score.py --top 20
 
-      - name: 수집 결과를 저장소에 반영
-        run: |
-          git config user.name  "car-hunter bot"
-          git config user.email "actions@github.com"
-          git add data
-          if git diff --cached --quiet; then
-            echo "바뀐 내용이 없습니다."
-          else
-            git commit -m "car-hunter: $(date -u +%Y-%m-%d) 자동 수집"
-            # 사람이 그 사이 push 했을 수 있으니 rebase 후 올린다
-            git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          fi
-
       - name: 배포할 파일 모으기
         run: |
           mkdir -p ../_site
           cp report.html ../_site/index.html
-          # 검색엔진에 걸리지 않게 한다 (매물 정보라 공개 색인은 원치 않음)
           printf 'User-agent: *\nDisallow: /\n' > ../_site/robots.txt
+          ls -la ../_site
 
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
   deploy:
-    needs: collect
+    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
