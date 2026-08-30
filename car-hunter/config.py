@@ -246,6 +246,32 @@ INSPECTION_PAGE_URL = (
     "?method=inspectionViewNew&carid={vid}"
 )
 
+# 성능기록부 부위 목록의 확정 DOM 구조 (브라우저 Elements 탭 실측):
+#   <ul class="list_state uiListLank1">
+#     <li><strong class="tit_part">프론트 휀더(우)</strong>
+#         <div class="txt_state"><span class="i1">교환</span></div></li>
+#   </ul>
+#   수리 없으면: <li class="uiLankNone">없음</li>
+LANK_LIST_CLASS = "uiListLank"      # 뒤에 1/2/A/B/C 가 붙는다
+LANK_NONE_CLASS = "uiLankNone"
+PART_NAME_CLASS = "tit_part"
+PART_STATE_CLASS = "txt_state"
+
+# ul 클래스 접미사 -> 우리 등급키
+LANK_SUFFIX_TO_RANK = {
+    "1": "외판1", "2": "외판2", "A": "골격A", "B": "골격B", "C": "골격C",
+}
+
+# 상태가 한글 텍스트로 직접 온다. 동그라미 기호를 찾을 필요가 없다.
+STATUS_TEXT_MAP = {
+    "교환": "X", "교체": "X",
+    "판금": "W", "용접": "W", "절단": "W", "판금/용접": "W",
+    "부식": "C",
+    "흠집": "A", "스크래치": "A", "긁힘": "A",
+    "요철": "U",
+    "손상": "T", "파손": "T",
+}
+
 # 성능기록부의 상태 부호. 동그라미 문자로 표기된다.
 INSPECTION_SYMBOLS = {
     "ⓧ": "X", "Ⓧ": "X", "⊗": "X",

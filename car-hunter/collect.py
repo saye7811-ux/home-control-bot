@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -1028,6 +1030,211 @@ def cmd_collect(args) -> int:
     return 0
 
 
+def _decode_js_escapes(text: str) -> str:
+    r"""자바스크립트 문자열의 \uXXXX 이스케이프를 실제 글자로 바꾼다.
+
+    JS 안의 한글은 보통 "\uc9c4\ub2e8" 처럼 인코딩돼 있어서, 브라우저에서
+    '교환' 으로 검색하면 안 나온다. 원본 HTML 을 뒤질 때는 반드시 풀어야 한다.
+    """
+    def _sub(m):
+        try:
+            return chr(int(m.group(1), 16))
+        except ValueError:
+            return m.group(0)
+    return re.sub(r"\\u([0-9a-fA-F]{4})", _sub, text)
+
+
+def cmd_hunt_page(args) -> int:
+    r"""원본 HTML 안에 수리 부위 데이터가 어떤 형태로 숨어 있는지 찾는다.
+
+    JS 가 별도 API 호출 없이 목록을 그린다면 데이터는 이미 페이지 안에 있다.
+    script 변수, JSON 문자열, hidden input, data-* 속성을 훑고,
+    \uXXXX 로 인코딩된 한글도 풀어서 본다.
+    """
+    path = args.hunt if isinstance(args.hunt, str) and os.path.isfile(args.hunt) else None
+    if path is None:
+        cands = sorted(glob.glob(os.path.join(
+            os.path.dirname(DETAILS_JSON), "raw_inspection_page*.html")))
+        if not cands:
+            die("성능기록부 HTML 이 없습니다. "
+                "`python collect.py --inspect-page --carid <번호>` 를 먼저 실행하세요.")
+        path = cands[-1]
+    raw = open(path, encoding="utf-8", errors="replace").read()
+    decoded = _decode_js_escapes(raw)
+
+    print("=" * 74)
+    print(f" 숨은 데이터 탐색 — {path} ({len(raw):,} bytes)")
+    print("=" * 74)
+
+    KEYS = ["tit_part", "uiListLank", "uiLankNone", "insrresult", "lank",
+            "교환", "판금", "용접", "부식", "휀더", "펜더", "도어", "필러", "멤버"]
+    print("\n[키워드 출현 횟수]  (원본 / \\u 디코딩 후)")
+    for k in KEYS:
+        a, b = raw.count(k), decoded.count(k)
+        mark = "   <== 디코딩해야 보임" if b > a else ""
+        print(f"    {k:12} {a:4} / {b:4}{mark}")
+
+    hits = [k for k in ("교환", "판금", "휀더", "필러", "tit_part")
+            if decoded.count(k) > 0]
+    if not hits:
+        warn("부위/상태 관련 문자열이 페이지 어디에도 없습니다.")
+        print("    -> 데이터가 원본 HTML 에 없다는 뜻입니다. 아래 우회로를 시험하세요:")
+        print("       python collect.py --try-urls --carid <번호>")
+        return 1
+
+    print(f"\n    발견: {hits}  -> 데이터가 페이지 안에 있습니다.")
+
+    # --- script 안의 JSON/변수 ---
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(raw, "lxml")
+    print("\n[script 안의 데이터 후보]")
+    shown = 0
+    for sc in soup.find_all("script"):
+        body = sc.string or sc.get_text() or ""
+        if not body.strip():
+            continue
+        dec = _decode_js_escapes(body)
+        if not any(k in dec for k in ("교환", "판금", "tit_part", "Lank", "lank")):
+            continue
+        # 변수 할당 형태를 찾아 본다
+        for m in re.finditer(r"(?:var|let|const)?\s*([\w.$]+)\s*=\s*([\[{].{0,4000}?[\]}])\s*[;\n]",
+                             dec, re.S):
+            name, blob = m.group(1), m.group(2)
+            if not any(k in blob for k in ("교환", "판금", "휀더", "필러", "part", "lank")):
+                continue
+            print(f"\n    --- 변수 {name} ---")
+            print("    " + re.sub(r"\s+", " ", blob)[:600])
+            shown += 1
+            if shown >= 4:
+                break
+        if shown < 4:
+            idx = max((dec.find(k) for k in ("교환", "판금", "tit_part") if k in dec),
+                      default=-1)
+            if idx >= 0:
+                print(f"\n    --- script 조각 (앞뒤 400자) ---")
+                print("    " + re.sub(r"\s+", " ", dec[max(0, idx-400): idx+400]))
+                shown += 1
+        if shown >= 5:
+            break
+    if not shown:
+        print("    (script 안에서는 못 찾음)")
+
+    # --- hidden input / data-* 속성 ---
+    print("\n[hidden input / data-* 속성]")
+    found_attr = 0
+    for el in soup.find_all(True):
+        if el.name == "input" and (el.get("type") or "").lower() == "hidden":
+            v = _decode_js_escapes(el.get("value") or "")
+            if any(k in v for k in ("교환", "판금", "휀더", "필러", "lank")):
+                print(f"    <input name={el.get('name')!r}> {v[:300]}")
+                found_attr += 1
+        for a, v in (el.attrs or {}).items():
+            if not a.startswith("data-") or not isinstance(v, str):
+                continue
+            dv = _decode_js_escapes(v)
+            if any(k in dv for k in ("교환", "판금", "휀더", "필러", "lank")):
+                print(f"    <{el.name} {a}=...> {dv[:300]}")
+                found_attr += 1
+        if found_attr >= 6:
+            break
+    if not found_attr:
+        print("    (hidden input / data-* 에는 없음)")
+
+    # --- 그 외 위치: 본문 어디쯤인지 ---
+    print("\n[본문에서의 위치 (앞뒤 300자)]")
+    for k in ("tit_part", "교환", "휀더"):
+        i = decoded.find(k)
+        if i < 0:
+            continue
+        print(f"\n    --- '{k}' 주변 ---")
+        print("    " + re.sub(r"\s+", " ", decoded[max(0, i-300): i+300]))
+        break
+
+    print("\n" + "=" * 74)
+    print(" 위 출력을 그대로 보내주시면 그 형태에 맞춰 파서를 붙이겠습니다.")
+    print("=" * 74)
+    return 0
+
+
+def cmd_try_urls(args) -> int:
+    """정적 HTML 로 성능기록부를 주는 다른 경로가 있는지 시험한다.
+
+    JS 렌더링을 피할 우회로: 인쇄용 / 모바일 / ajax 조각 페이지 등.
+    """
+    vid = str(args.carid or "").strip()
+    if not vid:
+        die("--carid <매물번호> 를 함께 주세요.")
+    client = api.EncarClient(config.COLLECT)
+
+    base = "https://www.encar.com/md/sl/mdsl_regcar.do"
+    cands = [
+        ("현재 사용 중", config.INSPECTION_PAGE_URL.format(vid=vid)),
+        ("인쇄용 1", f"{base}?method=inspectionPrint&carid={vid}"),
+        ("인쇄용 2", f"{base}?method=inspectionViewNew&carid={vid}&print=Y"),
+        ("구버전 뷰", f"{base}?method=inspectionView&carid={vid}"),
+        ("ajax 조각", f"{base}?method=inspectionViewNewAjax&carid={vid}"),
+        ("부위 조각", f"{base}?method=inspectionPartList&carid={vid}"),
+        ("모바일", f"http://m.encar.com/md/sl/mdsl_regcar.do"
+                   f"?method=inspectionViewNew&carid={vid}"),
+        ("성능점검 상세", f"https://www.encar.com/dc/dc_cardetailview.do"
+                          f"?method=inspectionView&carid={vid}"),
+    ]
+
+    print("=" * 74)
+    print(f" 정적 HTML 우회로 탐색 — carid={vid}")
+    print("=" * 74)
+    best = None
+    for label, url in cands:
+        try:
+            code, _payload, snippet, _ = client.raw_get(url, None, stage=f"try:{label}")
+        except api.EncarUnreachable as e:
+            print(f"  {label:14} 연결실패")
+            continue
+        except api.EncarBlocked:
+            raise
+        except RuntimeError as e:
+            print(f"  {label:14} 실패 ({str(e)[:44]})")
+            continue
+
+        body = ""
+        if code == 200:
+            try:
+                r = client.s.get(url, timeout=client.timeout,
+                                 headers={"Accept": "text/html"})
+                body = r.text or ""
+            except Exception:
+                body = snippet or ""
+        dec = _decode_js_escapes(body)
+        marks = [k for k in ("tit_part", "교환", "판금", "휀더", "필러")
+                 if k in dec]
+        note = f"  <== 부위 데이터 있음! {marks}" if marks else ""
+        print(f"  {label:14} {code if code else '연결실패'}  "
+              f"{len(body):>7,} bytes{note}")
+        if marks and best is None:
+            best = (label, url, body)
+
+    if best:
+        label, url, body = best
+        out = os.path.join(os.path.dirname(DETAILS_JSON),
+                           f"raw_inspection_alt_{vid}.html")
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(body)
+        print(f"\n  -> '{label}' 에서 부위 데이터를 찾았습니다.")
+        print(f"     {url}")
+        print(f"     저장: {out}")
+        print(f"\n     확인:  python collect.py --inspect-page {out}")
+    else:
+        warn("정적 HTML 우회로를 못 찾았습니다.")
+        print("\n  마지막 방법 — 브라우저에서 렌더된 DOM 을 직접 저장:")
+        print("    1. 성능기록부 페이지를 연다")
+        print("    2. F12 -> Elements 탭 -> 최상단 <html> 우클릭")
+        print("    3. Copy -> Copy outerHTML")
+        print("    4. 메모장에 붙여넣고 rendered.html 로 저장 (인코딩 UTF-8)")
+        print("    5. python collect.py --inspect-page rendered.html")
+        print("\n  이러면 JS 실행 결과가 그대로 담겨 파서가 읽을 수 있습니다.")
+    return 0
+
+
 def cmd_inspect_page(args) -> int:
     """저장된 성능기록부 HTML 을 분석하고, 판정 불가 항목의 마크업을 보여준다.
 
@@ -1382,8 +1589,11 @@ def main() -> int:
                    help="저장된 성능기록부 HTML 을 분석 + 마크업 진단")
     p.add_argument("--find", help="--inspect-page 전용: 이 키워드들의 마크업만 출력 "
                                   "(쉼표 구분, 예: 랭크,휀더,필러)")
-    p.add_argument("--carid", help="--inspect-page 전용: 이 매물의 성능기록부를 "
-                                   "새로 받아 분석 (사고 있는 매물로 시험할 때)")
+    p.add_argument("--carid", help="--inspect-page / --try-urls 전용: 매물 번호")
+    p.add_argument("--hunt", nargs="?", const=True,
+                   help="원본 HTML 안에 숨은 수리 부위 데이터를 찾는다")
+    p.add_argument("--try-urls", dest="try_urls", action="store_true",
+                   help="정적 HTML 로 성능기록부를 주는 다른 경로를 시험 (--carid 필요)")
     p.add_argument("--inspect-file", dest="inspect_file", nargs="?",
                    const="data/raw_inspection.json",
                    help="저장된 성능점검 JSON 을 네트워크 없이 분석")
@@ -1405,6 +1615,10 @@ def main() -> int:
             return cmd_probe(args)
         if args.discover:
             return cmd_discover(args)
+        if args.hunt:
+            return cmd_hunt_page(args)
+        if args.try_urls:
+            return cmd_try_urls(args)
         if args.inspect_page:
             return cmd_inspect_page(args)
         if args.inspect_file:

@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from typing import Any, Iterable
@@ -1111,9 +1112,16 @@ RANK_LABELS = [
 
 
 def _status_from_element(el) -> str | None:
-    """요소에서 상태 부호를 읽는다. 동그라미 문자 / class / img 순으로."""
+    """요소에서 상태 부호를 읽는다.
+
+    한글 텍스트(교환/판금 …) -> 동그라미 문자 -> class -> img 순.
+    실제 페이지는 한글로 직접 오므로 그것을 가장 먼저 본다.
+    """
     import config as _cfg
     txt = el.get_text(" ", strip=True) if hasattr(el, "get_text") else str(el)
+    for word, code in _cfg.STATUS_TEXT_MAP.items():
+        if word in txt:
+            return code
     for ch in txt:
         if ch in _cfg.INSPECTION_SYMBOLS:
             return _cfg.INSPECTION_SYMBOLS[ch]
@@ -1157,7 +1165,7 @@ def parse_inspection_page(html_text: str) -> dict:
         "page_available": False, "repairs": [], "unmatched_parts": [],
         "detail_bad": [], "detail_unknown": [], "ev_hv": {}, "ev_hv_bad": [],
         "ev_hv_unknown": [], "fields": {}, "field_notes": {},
-        "rank_sections": {}, "parse_note": "",
+        "rank_sections": {}, "parse_note": "", "observed_state_classes": {},
         "js_render_suspect": False, "js_hints": "", "js_scripts": [],
     }
     if not html_text or not html_text.strip():
@@ -1283,6 +1291,151 @@ def parse_inspection_page(html_text: str) -> dict:
 
     # --- 2) 수리 부위: 랭크 '블록' 단위로 ---
     # 랭크가 <tr> 이 아니라 <div>/<li> 구조일 수 있으므로 태그를 가리지 않는다.
+    # --- 2-A) script 안에 숨은 데이터에서 먼저 읽는다 ---
+    # JS 가 별도 API 호출 없이 목록을 그린다면 데이터는 이미 페이지 안에 있다.
+    # 한글이 \uXXXX 로 인코딩돼 있을 수 있으므로 풀어서 본다.
+    def _decode_escapes(t: str) -> str:
+        return re.sub(r"\\u([0-9a-fA-F]{4})",
+                      lambda m: chr(int(m.group(1), 16)), t)
+
+    def _from_script() -> int:
+        found = 0
+        for sc in soup.find_all("script"):
+            body = _decode_escapes(sc.string or sc.get_text() or "")
+            if not any(k in body for k in ("교환", "판금", "용접", "휀더", "필러")):
+                continue
+            for m in re.finditer(r"([\[{].{0,20000}?[\]}])\s*[;\n]", body, re.S):
+                blob = m.group(1)
+                if not any(k in blob for k in ("교환", "판금", "용접")):
+                    continue
+                try:
+                    data = json.loads(blob)
+                except Exception:
+                    continue
+                found += _walk_parts(data)
+                if found:
+                    return found
+        return found
+
+    def _walk_parts(node, rank_hint: str | None = None) -> int:
+        """중첩 구조를 훑어 (부위명, 상태) 쌍을 모은다."""
+        n = 0
+        if isinstance(node, dict):
+            name = None
+            state = None
+            for k, v in node.items():
+                if not isinstance(v, str):
+                    continue
+                kl = k.lower()
+                if any(w in kl for w in ("part", "nm", "name", "title")) and \
+                        resolve_part(v)[0]:
+                    name = v
+                elif any(w in kl for w in ("state", "status", "gubun", "type")) and \
+                        any(w in v for w in _cfg.STATUS_TEXT_MAP):
+                    state = v
+            if name and state:
+                canon, rank = resolve_part(name)
+                code = next((c for w, c in _cfg.STATUS_TEXT_MAP.items() if w in state),
+                            None)
+                rk = rank_hint or rank
+                if canon and rk:
+                    pos = ""
+                    mp = re.search(r"[(（]\s*([좌우전후])\s*[)）]", name)
+                    if mp:
+                        pos = mp.group(1)
+                    out["repairs"].append({
+                        "part": canon, "raw": name, "position": pos,
+                        "status": code or "?", "rank": rk,
+                        "status_known": bool(code), "status_text": state,
+                        "status_class": "", "source": "script",
+                    })
+                    out["rank_sections"].setdefault(rk, "")
+                    out["rank_sections"][rk] = (
+                        (out["rank_sections"][rk] + " / ") if out["rank_sections"][rk]
+                        else "") + f"{name} {state}"
+                    n += 1
+            for k, v in node.items():
+                hint = rank_hint
+                mk = re.search(r"lank\s*([0-9ABC])", str(k), re.I)
+                if mk:
+                    hint = _cfg.LANK_SUFFIX_TO_RANK.get(mk.group(1).upper(), rank_hint)
+                n += _walk_parts(v, hint)
+        elif isinstance(node, list):
+            for v in node:
+                n += _walk_parts(v, rank_hint)
+        return n
+
+    if _from_script():
+        out["parse_note"] = "script 안의 데이터에서 읽음"
+        for rk in _cfg.LANK_SUFFIX_TO_RANK.values():
+            out["rank_sections"].setdefault(rk, "없음")
+
+    # --- 2-0) 확정 DOM 구조 (ul.uiListLank* > li > strong.tit_part) ---
+    # 브라우저 실측으로 확인된 구조. 여기서 읽히면 나머지 추정 경로는 쓰지 않는다.
+    observed_classes: dict[str, str] = {}     # span class -> 상태 텍스트
+    for ul in (soup.find_all("ul") if not out["repairs"] else []):
+        classes = " ".join(ul.get("class") or [])
+        if _cfg.LANK_LIST_CLASS not in classes:
+            continue
+        m = re.search(re.escape(_cfg.LANK_LIST_CLASS) + r"([0-9A-Za-z])", classes)
+        rank = _cfg.LANK_SUFFIX_TO_RANK.get((m.group(1).upper() if m else ""), None)
+        if rank is None:
+            continue
+
+        items = ul.find_all("li")
+        none_only = all(_cfg.LANK_NONE_CLASS in " ".join(li.get("class") or [])
+                        or li.get_text(strip=True) in ("없음", "-")
+                        for li in items) if items else True
+        if none_only:
+            out["rank_sections"][rank] = "없음"
+            continue
+
+        bodies = []
+        for li in items:
+            if _cfg.LANK_NONE_CLASS in " ".join(li.get("class") or []):
+                continue
+            name_el = li.find(class_=re.compile(_cfg.PART_NAME_CLASS))
+            if name_el is None:
+                continue
+            name = name_el.get_text(" ", strip=True)
+            state_el = li.find(class_=re.compile(_cfg.PART_STATE_CLASS))
+            state_txt, state_cls = "", ""
+            if state_el is not None:
+                sp = state_el.find("span")
+                target = sp if sp is not None else state_el
+                state_txt = target.get_text(" ", strip=True)
+                state_cls = " ".join(target.get("class") or [])
+                if state_cls and state_txt:
+                    observed_classes.setdefault(state_cls, state_txt)
+
+            code = None
+            for word, c in _cfg.STATUS_TEXT_MAP.items():
+                if word in state_txt:
+                    code = c
+                    break
+            canon, _r = resolve_part(name)
+            bodies.append(f"{name} {state_txt}".strip())
+            if not canon:
+                out["unmatched_parts"].append(f"[{rank}] {name}")
+                continue
+            pos = ""
+            mp = re.search(r"[(（]\s*([좌우전후])\s*[)）]", name)
+            if mp:
+                pos = mp.group(1)
+            out["repairs"].append({
+                "part": canon, "raw": name, "position": pos,
+                "status": code or "?", "rank": rank,
+                "status_known": bool(code),
+                "status_text": state_txt, "status_class": state_cls,
+            })
+        out["rank_sections"][rank] = " / ".join(bodies)[:120] or "없음"
+
+    out["observed_state_classes"] = observed_classes
+    if out["repairs"] and not out["parse_note"]:
+        src = out["repairs"][0].get("source", "dom")
+        out["parse_note"] = ("script 안의 데이터에서 읽음" if src == "script"
+                             else "확정 DOM 구조(uiListLank)에서 읽음")
+
     all_rank_labels = [lb for _r, lbs in RANK_LABELS for lb in lbs]
 
     def _rank_block(labels: list[str]):
@@ -1326,6 +1479,8 @@ def parse_inspection_page(html_text: str) -> dict:
         return cur
 
     for rank, labels in RANK_LABELS:
+        if rank in out["rank_sections"]:
+            continue          # 확정 구조에서 이미 읽음
         block = _rank_block(labels)
         if block is None:
             continue

@@ -261,9 +261,44 @@ https://www.encar.com/md/sl/mdsl_regcar.do?method=inspectionViewNew&carid={carid
 `"프론트 휀더(우) 교환 프론트 도어(우) 교환"` 이 통째로 한 부위로 잡히는
 것을 막는다.
 
-상태 부호는 동그라미 문자(ⓧ ⓦ …) → CSS 클래스(`ico_x`, `ico_state x`)
-→ `<img>` 순으로 찾는다. 못 읽으면 R(방식 미상)로 채점하고 그 사실을
-표시한다.
+**확정된 DOM 구조** (브라우저 Elements 탭 실측):
+
+```html
+<ul class="list_state uiListLank1">
+  <li><strong class="tit_part">프론트 휀더(우)</strong>
+      <div class="txt_state"><span class="i1">교환</span></div></li>
+</ul>
+<ul class="list_state uiListLankB">
+  <li><strong class="tit_part">필러 패널 A(우)</strong>
+      <div class="txt_state"><span class="i2">판금</span></div></li>
+</ul>
+<!-- 수리 없으면 --> <li class="uiLankNone">없음</li>
+```
+
+부위명은 `strong.tit_part`, 상태는 `div.txt_state span` 의 **한글 텍스트**를
+읽는다. 동그라미 기호나 이미지를 찾을 필요가 없다.
+`교환`→X, `판금`/`용접`→W, `부식`→C, `흠집`→A, `요철`→U, `손상`→T.
+span 의 class(`i1`, `i2` …)도 함께 수집해 매핑을 검증한다.
+
+**이 목록은 자바스크립트가 그린다.** 별도 API 호출은 없고 데이터가 페이지
+안에 이미 들어 있다. 그래서 파서는 세 경로를 순서대로 시도한다:
+
+1. `<script>` 안의 JSON/변수 — 한글이 `\uXXXX` 로 인코딩돼 있어도 풀어서 읽는다
+2. 렌더된 DOM (`ul.uiListLank*`) — 브라우저에서 저장한 HTML
+3. 표/텍스트 기반 추정 (구버전 대비)
+
+```bash
+python collect.py --hunt                    # 원본 HTML 안의 숨은 데이터 탐색
+python collect.py --try-urls --carid 12345  # 정적 HTML 우회로 탐색
+```
+
+`--hunt` 는 `\uXXXX` 를 디코딩해 키워드를 세고, script 변수·hidden input·
+`data-*` 속성을 훑어 데이터가 어디에 어떤 형태로 있는지 보여준다.
+브라우저에서 "교환" 으로 검색해도 안 나오는 이유가 이 인코딩이다.
+
+`--try-urls` 는 인쇄용·모바일·ajax 조각 등 정적 HTML 후보를 시험한다.
+전부 실패하면 브라우저 Elements 탭에서 `Copy outerHTML` 로 저장한 파일을
+`--inspect-page <파일>` 에 넣으면 된다.
 
 **진단이 막히면 마크업을 뽑아 준다.**
 
