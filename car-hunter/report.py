@@ -287,6 +287,19 @@ def _verdict_html(r: dict) -> str:
     elif maker:
         out.append(f'<div class="muted small">배터리 {_e(maker)}</div>')
 
+    # 판매자가 설명글에서 주장한 옵션. 점수에는 안 들어간다 — 딜러
+    # 자유 기술이라 근거가 못 된다. 다만 에어서스처럼 다른 경로로
+    # 확정할 수 없는 항목이라 '확인할 거리' 로는 값이 있다.
+    claims = r.get("seller_option_claims") or ""
+    if claims:
+        out.append(f'<div class="claim">딜러 주장 옵션: {_e(claims)}</div>'
+                   '<div class="muted small">판매자 설명글 근거 · <b>미검증</b>입니다. '
+                   '점수에 반영하지 않았습니다 — 실차 또는 헤이딜러에서 확인하세요.</div>')
+    vin = str(r.get("insp_vin") or "")
+    if len(vin) == 17:
+        out.append(f'<div class="muted small">차대번호 <code>{_e(vin)}</code> '
+                   f'— VIN 디코더에 직접 입력하면 출고 옵션을 볼 수 있습니다</div>')
+
     # 매물 반응 신호
     sig = r.get("listing_signal") or ""
     if sig:
@@ -581,6 +594,8 @@ border:2px solid var(--plate-fg)}
 tr.row-photo td{background:rgba(124,45,18,.06)}
 .flag-batt{margin-top:6px;padding:5px 9px;border-radius:6px;font-size:12px;
            font-weight:800;background:#991b1b;color:#fff}
+.claim{margin-top:6px;padding:4px 8px;border-radius:6px;font-size:12px;
+       font-weight:700;background:rgba(37,99,235,.12);color:#2563eb}
 .sig-warn{margin-top:6px;font-size:12px;font-weight:800;color:#b45309}
 .sig-good{margin-top:6px;font-size:12px;font-weight:800;color:var(--good)}
 .trimtbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}

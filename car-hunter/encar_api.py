@@ -51,8 +51,12 @@ def option_map_candidates(vid: str) -> list[tuple[str, str, dict | None]]:
         ("차량 스펙", d + "/spec", None),
     ]
 
+# 상세 응답에서 받아올 구획. 엔카는 이 목록에 없는 구획을 아예 안 준다.
+# CONTENTS(판매자 설명글)가 빠져 있어서 '응답에 없다' 고 오해했는데,
+# 실은 우리가 달라고 하지 않았던 것이다. 점수에는 쓰지 않지만
+# 에어서스처럼 다른 경로로 확정할 수 없는 옵션의 단서가 여기 있다.
 DETAIL_INCLUDE = (
-    "ADVERTISEMENT,CATEGORY,CONDITION,CONTACT,MANAGE,"
+    "ADVERTISEMENT,CATEGORY,CONDITION,CONTACT,CONTENTS,MANAGE,"
     "OPTIONS,PHOTOS,SPEC,PARTNERSHIP,CENTER,VIEW"
 )
 
@@ -639,6 +643,36 @@ WELD_WORDS = ("판금", "용접", "골격", "부식")
 def _blank(v):
     """None(응답에 없음)은 빈 문자열로. 0 과 구분하기 위함."""
     return "" if v is None else v
+
+
+SELLER_OPTION_PATTERNS = {
+    "에어서스펜션": ("에어서스", "에어 서스", "에어매틱", "airmatic", "air suspension",
+                "에어써스"),
+    "후륜조향": ("후륜조향", "후륜 조향", "인테그럴", "인테그랄", "integral active",
+             "리어 액슬 스티어링", "rear axle steering"),
+}
+
+
+def _seller_text(detail: Any) -> str:
+    c = pick(detail or {}, "contents")
+    if isinstance(c, dict):
+        return str(c.get("text") or "")
+    return str(c or "")
+
+
+def _seller_option_claims(detail: Any) -> list[str]:
+    """판매자 설명글에서 '장착했다' 고 주장하는 옵션을 뽑는다.
+
+    이것은 근거가 아니라 단서다. 딜러가 쓴 홍보 문구라 점수에 넣지
+    않는다. 다만 에어서스처럼 다른 경로로 확정할 수 없는 항목은
+    '실차에서 확인할 것' 으로 띄워 줄 값어치가 있다.
+    """
+    t = _seller_text(detail).lower().replace(" ", "")
+    out = []
+    for label, needles in SELLER_OPTION_PATTERNS.items():
+        if any(n.lower().replace(" ", "") in t for n in needles):
+            out.append(label)
+    return out
 
 
 def normalize_record(record: Any) -> dict:
@@ -3090,7 +3124,16 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
                      code_map: dict[str, str] | None = None,
                      inspection_html: str | None = None) -> dict:
     """상세/이력/성능점검 응답을 하나의 평탄한 행으로."""
-    strs = strings_of(detail, record, inspection, diagnosis)
+    # 플래그 판정(리스·렌트, 침수, 1인소유 등)에 쓸 문자열 모음.
+    #
+    # 판매자 설명글(contents)은 여기서 **반드시 뺀다.** 딜러 광고 문구라
+    # "리스 견적 및 문의는 연락주십시오", "편리한 리스승계" 같은 문장이
+    # 흔한데, 그것을 훑으면 멀쩡한 일반 매물이 리스 매물로 둔갑한다.
+    # 실제로 contents 를 응답에 포함시킨 순간 85대 중 리스가 31대에서
+    # 59대로 뛰었고, 무사고 시세 표본이 29대에서 14대로 반토막 났다.
+    # 설명글은 seller_option_claims 를 뽑는 데만 쓴다.
+    detail_no_text = {k: v for k, v in (detail or {}).items() if k != "contents"}         if isinstance(detail, dict) else detail
+    strs = strings_of(detail_no_text, record, inspection, diagnosis)
     hay_flat = " \n ".join(strs).lower().replace(" ", "")
 
     # 차량번호 — 상세 응답 최상단에 노출됨
@@ -3200,6 +3243,12 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "origin_price_manwon": origin_price if origin_price is not None else "",
         # 매물 품질 신호 — 사진 수가 적거나 하부 사진이 없으면 살 사람이
         # 확인할 것이 적다. '왜 안 팔리나' 를 좁히는 데 쓴다.
+        # 판매자 설명글. 점수에는 절대 넣지 않는다 (딜러 자유 기술이라
+        # 없는데 적거나 있는데 안 적는 일이 흔하다). 다만 '확인해 볼
+        # 거리' 로는 값이 있다 — 에어서스처럼 우리가 다른 경로로는
+        # 확정할 수 없는 옵션을 딜러가 명시하는 경우가 있다.
+        "seller_option_claims": ", ".join(_seller_option_claims(detail)),
+        "seller_text_len": len(_seller_text(detail)),
         "photo_count": len(pick(detail or {}, "photos") or []),
         "has_underbody_photo": bool(pick(detail or {},
                                          "advertisement.hasUnderBodyPhoto")),

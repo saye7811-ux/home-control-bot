@@ -44,6 +44,7 @@ SCORED_FIELDS = [
     "value_gap_pct", "value_gap_sigma", "sigma_manwon",
     "value_verdict", "value_verdict_note", "discount_priced_in",
     "discount_extra", "discount_extra_manwon", "discount_unexplained_manwon",
+    "seller_option_claims", "seller_text_len", "insp_vin",
     "trim_key", "trim_offset_manwon", "battery_maker", "battery_risk",
     "battery_note", "view_count", "subscribe_count", "view_per_day",
     "listing_signal", "listing_signal_note",
@@ -500,6 +501,11 @@ def print_top(rows, n, sort_label: str = "") -> None:
                    "unknown": "확인 필요"}.get(risk, "")
             print(f"       배터리  {r.get('battery_maker') or '미확인'} [{tag}]"
                   + (f" — {r['battery_note']}" if r.get("battery_note") else ""))
+        if r.get("seller_option_claims"):
+            print(f"       딜러 주장 옵션: {r['seller_option_claims']} "
+                  f"(설명글 근거 · 미검증 — 실차/헤이딜러에서 확인 필요)")
+        if r.get("insp_vin") and len(str(r["insp_vin"])) == 17:
+            print(f"       차대번호: {r['insp_vin']}  (VIN 디코더에 직접 입력 가능)")
         if r.get("listing_signal"):
             print(f"       매물반응 {r['listing_signal']}")
             print(f"          {r.get('listing_signal_note','')}")

@@ -66,6 +66,7 @@ LISTING_FIELDS = [
     "page_js_suspect", "page_detail_bad", "page_detail_unknown",
     "page_ev_hv_bad", "page_ev_hv_unknown", "page_ev_hv_checked", "page_parse_note",
     "page_is_image",
+    "seller_option_claims", "seller_text_len",
     "photo_count", "has_underbody_photo", "description_len",
     "seizing_count", "pledge_count",
     "first_advertised", "days_on_market", "re_registered", "lease_rent_info",
@@ -1149,6 +1150,115 @@ def dedupe_by_plate(rows: list[dict]) -> list[dict]:
     return out
 
 
+def cmd_backfill(args) -> int:
+    """새 필드만 채운다 — 전량 재수집하지 않는다.
+
+    필드를 하나 추가할 때마다 매물 전체를 다시 받으면 30분이 넘고 엔카에도
+    부담이다. 대부분의 응답은 이미 받아 뒀고, 새 필드는 그 안에 들어 있거나
+    (그러면 요청이 아예 필요 없다) 상세 응답 한 번이면 채워진다.
+
+    그래서 두 단계로 간다:
+      1) 저장된 응답만으로 다시 파싱해 본다. 그것으로 채워지면 요청 0회.
+      2) 그래도 비어 있는 매물만 상세 API 를 '한 번' 부른다.
+         보험이력·성능점검·성능기록부는 건드리지 않는다 (그대로 재사용).
+
+    실제로 판매자 설명글(seller_option_claims)은 상세 응답 안에 있으므로
+    매물당 1회면 끝난다 — 85대 기준 5분 이내.
+
+        python collect.py --backfill seller_option_claims
+        python collect.py --backfill photo_count,seizing_count
+    """
+    ensure_dirs()
+    fields = [f.strip() for f in str(args.backfill or "").split(",") if f.strip()]
+    if not fields:
+        die("채울 필드 이름을 주세요. "
+            "예: --backfill seller_option_claims,seller_text_len  "
+            "(여러 개를 주면 '하나라도 값이 있으면' 완료로 봅니다. "
+            "빈 값이 정상인 필드는 원본을 받았다는 증거 필드를 함께 주세요)")
+
+    rows = read_csv(LISTINGS_CSV)
+    if not rows:
+        die(f"{LISTINGS_CSV} 이 없습니다. 먼저 `python collect.py` 를 실행하세요.")
+    details = read_json(DETAILS_JSON) or {}
+    targets = {t["key"]: t for t in config.TARGETS}
+
+    def _filled(r) -> bool:
+        """이 매물은 이미 채워졌는가.
+
+        주의: '값이 비었다' 와 '아직 안 받아봤다' 는 다르다. 예를 들어
+        판매자가 에어서스를 언급하지 않았으면 seller_option_claims 는
+        정상적으로 빈 값이다. 그걸 '미완료' 로 보면 매주 전부 다시
+        받게 된다.
+
+        그래서 필드를 여러 개 주면 **하나라도** 값이 있을 때 완료로 본다.
+        보통 '뽑아낸 값' 과 '원본을 받았다는 증거' 를 같이 준다:
+
+            --backfill seller_option_claims,seller_text_len
+
+        (설명글을 받았으면 seller_text_len 이 0 이 아니므로, 주장 옵션이
+         비어 있어도 다시 받지 않는다)
+        """
+        return any(str(r.get(f, "")).strip() not in ("", "0", "False", "None")
+                   for f in fields)
+
+    def _renorm(r, cached):
+        t = targets.get(r.get("model_key")) or {}
+        r.update(api.normalize_detail(
+            r["vehicle_id"], cached.get("detail"), cached.get("record"),
+            cached.get("inspection"), cached.get("diagnosis"), t,
+            inspection_html=cached.get("inspection_html")))
+
+    # --- 1단계: 저장된 응답만으로 다시 파싱 ---
+    from_cache = 0
+    for r in rows:
+        cached = details.get(str(r.get("vehicle_id"))) or {}
+        if cached.get("detail"):
+            _renorm(r, cached)
+            if _filled(r):
+                from_cache += 1
+    todo = [r for r in rows if not _filled(r)]
+    log(f"필드 {fields} 채우기")
+    log(f"  저장분만으로 채워진 매물 {from_cache}건 (요청 0회)")
+    if not todo:
+        log("  추가 조회가 필요 없습니다.")
+    else:
+        est = len(todo) * config.COLLECT["request_interval_sec"] / 60
+        log(f"  상세 API 1회씩 추가 조회할 매물 {len(todo)}건 (예상 {est:.0f}분)")
+
+    client = api.EncarClient(config.COLLECT)
+    got = 0
+    try:
+        for i, r in enumerate(todo, 1):
+            vid = str(r["vehicle_id"])
+            if i % 10 == 1 or i == len(todo):
+                log(f"  {i}/{len(todo)} (id={vid})")
+            detail = client.detail(vid)          # 상세 하나만. 나머지는 재사용
+            if detail is None:
+                continue
+            cached = details.setdefault(vid, {})
+            cached["detail"] = detail
+            cached["fetched_at"] = datetime.now().isoformat(timespec="seconds")
+            _renorm(r, cached)
+            if _filled(r):
+                got += 1
+    except api.EncarBlocked as e:
+        warn(f"차단 감지로 중단합니다: {e}")
+    except api.EncarUnreachable as e:
+        warn(f"연결 실패로 중단합니다: {e}")
+
+    history.annotate(rows)
+    write_csv(LISTINGS_CSV, rows, LISTING_FIELDS)
+    write_json(DETAILS_JSON, details)
+    # 오늘 스냅샷도 같은 내용으로 맞춰 둔다 (이력 비교가 어긋나지 않게)
+    history.snapshot(rows, LISTING_FIELDS)
+
+    filled = sum(1 for r in rows if _filled(r))
+    log(f"완료: {filled}/{len(rows)}건에 값이 있습니다 "
+        f"(저장분 {from_cache} + 추가조회 {got})")
+    log(f"저장: {LISTINGS_CSV}, {DETAILS_JSON}")
+    return 0
+
+
 def cmd_collect(args) -> int:
     ensure_dirs()
     if os.path.exists(BLOCKED_FLAG):
@@ -1924,6 +2034,10 @@ def main() -> int:
     p.add_argument("--model", metavar="KEY", help="config.TARGETS 의 key 하나만 처리")
     p.add_argument("--limit", type=int, help="모델당 최대 건수")
     p.add_argument("--no-detail", action="store_true", help="상세 API 생략")
+    p.add_argument("--backfill", metavar="필드[,필드...]",
+                   help="새 필드만 채운다. 전량 재수집하지 않고, 저장된 응답으로 "
+                        "먼저 채운 뒤 그래도 빈 매물만 상세 API 를 1회씩 부른다. "
+                        "예: --backfill seller_option_claims")
     p.add_argument("--full", action="store_true",
                    help="증분 수집을 쓰지 않고 전부 다시 받는다 "
                         "(기본은 증분 — 가격이 그대로인 매물은 저장분 재사용, "
@@ -1948,6 +2062,8 @@ def main() -> int:
             return cmd_inspect_page(args)
         if args.inspect_file:
             return cmd_inspect_file(args)
+        if args.backfill:
+            return cmd_backfill(args)
         if args.reparse:
             return cmd_reparse(args)
         if args.fixture:
