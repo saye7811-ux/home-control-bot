@@ -21,7 +21,7 @@ import history
 import report as report_mod
 import scoring
 from common import (
-    to_float,
+    to_float, to_int,
     BLOCKED_FLAG, LISTINGS_CSV, MARKET_JSON, REPORT_HTML, SCORED_CSV,
     die, ensure_dirs, fmt_km, fmt_manwon, log, read_csv, warn,
     write_csv, write_json,
@@ -100,9 +100,15 @@ def print_market_summary(market, rows) -> None:
     if kms:
         print(f"  주행거리  최저 {fmt_km(kms[0])}  /  중앙 {fmt_km(kms[len(kms)//2])}"
               f"  /  최고 {fmt_km(kms[-1])}")
-    print(f"  기준선    {market.basis} 매물 기준 "
-          f"(무사고 {market.n_clean}대 / 전체 {len(rows)}대, "
-          f"사고 할인 계수 x{market.accident_scale:.1f})")
+    # 통합 시세선을 쓰면 표본 수는 이 차종이 아니라 '합친 표본' 의 것이다.
+    # 그대로 '전체 N대' 옆에 붙이면 무사고가 전체보다 많아 보이는 이상한
+    # 표시가 된다. 어느 표본으로 그린 선인지 분명히 적는다.
+    print(f"  기준선    {market.basis} 매물 기준 · 시세선 표본 {market.n}대"
+          f"(무사고 {market.n_clean}대), 사고 할인 계수 "
+          f"x{market.accident_scale:.1f}")
+    if market.n != len(rows):
+        print(f"            이 차종 매물은 {len(rows)}대이고, 시세선은 위 표본으로 "
+              f"그렸습니다")
     origins = sorted(r["origin_price_manwon"] for r in rows
                      if r.get("origin_price_manwon"))
     if origins:
@@ -129,6 +135,8 @@ def print_market_summary(market, rows) -> None:
     else:
         print("  시세선    표본 5건 미만 — 중앙값 기준 비교로 대체")
 
+    if getattr(market, "km_coverage_note", ""):
+        print(f"  ! 주행거리 범위  {market.km_coverage_note}")
     if market.n_dropped:
         print(f"  이상치    {market.dropped_note}")
         print("            표본 하나가 시세선을 통째로 끌고 가는 것을 막습니다")
@@ -202,7 +210,7 @@ def print_lease_impact(groups: list) -> None:
     print(" 시세선이 아래로 당겨져 멀쩡한 매물이 죄다 '고평가' 로 보일 수 있습니다.")
     print("")
     print(f" {'차종':<24}{'포함 잔존율':>12}{'제외 잔존율':>12}{'차이':>10}"
-          f"{'포함 잔차':>10}{'제외 잔차':>10}")
+          f"{'포함 잔차':>10}{'제외 잔차':>10}{'잔차증가':>10}")
     big = False
     for key, target, group in groups:
         with_l = scoring.fit_market(group, key, target["label"])
@@ -213,17 +221,24 @@ def print_lease_impact(groups: list) -> None:
         if a is None or b is None:
             continue
         d = (b - a) * 100
-        if abs(d) >= 1.0:
+        # 판단 기준은 잔존율의 이동이 아니라 '잔차' 다.
+        # 인수금 매물은 시세선을 한쪽으로 끌기보다 위아래로 흩뿌리기
+        # 때문에, 평균은 거의 그대로인데 산포만 커진다. 저평가 판정은
+        # σ(=잔차)로 하므로 잔차가 커지면 진짜 저평가가 묻힌다.
+        inflate = (with_l.resid_std / without.resid_std
+                   if without.resid_std else 1.0)
+        if inflate >= 1.20:
             big = True
         print(f" {target['label']:<24}{a*100:>11.1f}%{b*100:>11.1f}%"
               f"{d:>+9.2f}%p{with_l.resid_std*100:>9.2f}%p"
-              f"{without.resid_std*100:>9.2f}%p")
+              f"{without.resid_std*100:>9.2f}%p{inflate:>8.2f}배")
     print("")
     if big:
-        print(" ! 차이가 1%p 이상입니다 — 인수금이 차값으로 섞여 시세선을 끌고 있습니다.")
-        print("   config.INCLUDE_LEASE_IN_BASELINE = False 로 두는 것을 권합니다.")
+        print(" ! 리스를 넣으면 잔차가 20% 이상 커집니다 — 인수금이 차값과 무관하게")
+        print("   흩어지기 때문입니다. 평균은 그대로인데 산포만 커지므로 진짜")
+        print("   저평가가 잡음에 묻힙니다. INCLUDE_LEASE_IN_BASELINE = False 를 권합니다.")
     else:
-        print(" 차이가 작습니다 — 표본을 키우는 쪽(포함)이 유리합니다.")
+        print(" 잔차가 크게 나빠지지 않습니다 — 표본을 키우는 쪽(포함)도 괜찮습니다.")
     print(f"   현재 설정: INCLUDE_LEASE_IN_BASELINE = "
           f"{getattr(config, 'INCLUDE_LEASE_IN_BASELINE', True)}")
     print("   (순위·추천에서는 설정과 무관하게 항상 제외됩니다)")
@@ -445,7 +460,6 @@ def main() -> int:
 
     # 타입 정리 + 파생 지표
     rows = []
-    from common import to_int
     for r in raw:
         for k in ("price_manwon", "year", "month", "mileage_km", "origin_price_manwon"):
             r[k] = to_int(r.get(k))

@@ -71,6 +71,7 @@ class MarketModel:
     n_dropped: int = 0             # 이상치로 빼고 적합한 표본 수
     dropped_note: str = ""         # 무엇을 뺐는지 (사람이 읽는 설명)
     n_lease: int = 0               # 표본에 섞인 리스·렌트 매물 수
+    km_coverage_note: str = ""     # 주행거리 범위를 못 덮을 때의 경고
 
     def predict(self, age: float | None, km: int | None,
                 origin: float | None = None) -> float | None:
@@ -756,7 +757,36 @@ def fit_baseline(rows: list[dict], key: str, label: str) -> MarketModel:
         m.basis = "전체"
         m.accident_scale = B.get("accident_scale_when_all", 0.6)
     m.n_clean = len(clean)
+
+    # 고른 표본이 주행거리를 충분히 덮는가.
+    #
+    # 무사고 기준선은 사고 할인을 이중으로 빼지 않게 해 주지만, 무사고
+    # 차는 대개 새 차라 표본이 저주행 쪽으로 쏠린다. 그러면 km 계수가
+    # 사실상 추정되지 않고, 과주행 차의 흠결이 과소평가된다.
+    # 실측: 무사고 29대 중 5만km 초과가 3대뿐일 때 km 계수가
+    # -0.065%p/1000km 였는데, 전체 54대로 그리면 -0.104%p 로 60% 커졌다.
+    used = clean if use_clean else rows
+    m.km_coverage_note = _km_coverage_warning(used, rows)
     return m
+
+
+def _km_coverage_warning(used: list[dict], pool: list[dict]) -> str:
+    """회귀에 쓴 표본이 주행거리 상단을 덮지 못하면 경고 문구를 만든다."""
+    def kms(rs):
+        return sorted(k for k in (to_int(r.get("mileage_km")) for r in rs)
+                      if k is not None)
+    a, b = kms(used), kms(pool)
+    if len(a) < 5 or len(b) < 5:
+        return ""
+    def p90(x):
+        return x[max(0, int(len(x) * 0.9) - 1)]
+    hi_used = sum(1 for k in a if k > 50_000)
+    if p90(a) >= p90(b) * 0.6 and hi_used >= 5:
+        return ""
+    return (f"회귀 표본 {len(a)}대 중 5만km 초과가 {hi_used}대뿐입니다 "
+            f"(상위90% {p90(a):,}km / 전체 표본은 {p90(b):,}km). "
+            f"주행거리 계수가 약하게 추정돼 과주행 매물의 흠결이 "
+            f"과소평가될 수 있습니다.")
 
 
 def compare_pooling(per_model: list[tuple], all_rows: list[dict]) -> dict:
