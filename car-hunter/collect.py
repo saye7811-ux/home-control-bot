@@ -900,7 +900,15 @@ def plan_detail_fetch(picked: list[dict], full: bool = False) -> dict:
 
         price_now = to_int(r.get("price_manwon"))
         price_old = to_int(old_row.get("price_manwon")) if old_row else None
-        if old_row is None or price_old is None or price_now != price_old:
+        if price_old is None:
+            # listings.csv 에 행이 없을 수 있다 — 차량번호 중복 제거로
+            # 빠진 매물이 그렇다. 그렇다고 다시 받을 이유는 없다.
+            # 저장해 둔 상세 응답의 가격과 견주면 된다.
+            det = (cached.get("detail") or {})
+            adv = det.get("advertisement") if isinstance(det, dict) else None
+            if isinstance(adv, dict):
+                price_old = to_int(adv.get("price"))
+        if price_old is None or price_now != price_old:
             out["mode"][vid] = "fetch_fast"
             out["fetch_fast"].append(vid)
         else:
@@ -1006,10 +1014,11 @@ def collect_target(client, target: dict, limit: int, with_detail: bool,
 
     plan = plan_detail_fetch(picked, full=full)
     if not full:
-        log(f"  증분: 새로 받을 매물 {len(plan['fetch'])}건, "
-            f"저장분 재사용 {len(plan['reuse'])}건"
-            + (f", 성능기록부·보험이력만 갱신 {len(plan['refresh_slow'])}건"
-               if plan["refresh_slow"] else ""))
+        log(f"  증분: 전체 조회 {len(plan['fetch'])}건"
+            + (f" (30일 경과 {len(plan['refresh_slow'])}건 포함)"
+               if plan["refresh_slow"] else "")
+            + f", 가격변동만 갱신 {len(plan['fetch_fast'])}건"
+            + f", 저장분 재사용 {len(plan['reuse'])}건")
 
     for i, listing in enumerate(picked, 1):
         vid = listing["vehicle_id"]
