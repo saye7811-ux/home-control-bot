@@ -141,7 +141,11 @@ def print_market_summary(market, rows) -> None:
     else:
         print("  시세선    표본 5건 미만 — 중앙값 기준 비교로 대체")
 
-    stats = getattr(market, "trim_stats", None) or []
+    # 통합 시세선이면 market 이 두 차종에 공유된다. 트림 표는 이 차종의
+    # 트림만 보여야 한다 (안 그러면 BMW 요약에 EQE 트림이 섞인다).
+    own = {scoring.normalize_trim(r.get("trim")) for r in rows}
+    stats = [st for st in (getattr(market, "trim_stats", None) or [])
+             if st.get("trim") in own]
     if stats:
         print("  트림 편차  (기준선 표본에서 실측 — 계수를 사람이 정하지 않음)")
         print(f"    {'트림':12}{'n':>4}{'편차':>10}{'t':>7}  판정")
@@ -159,8 +163,9 @@ def print_market_summary(market, rows) -> None:
     if market.n_dropped:
         print(f"  이상치    {market.dropped_note}")
         print("            표본 하나가 시세선을 통째로 끌고 가는 것을 막습니다")
-    if market.n_lease:
-        print(f"  리스·렌트 표본에 {market.n_lease}대 포함 "
+    n_lease_here = sum(1 for r in rows if scoring.is_lease_listing(r))
+    if n_lease_here:
+        print(f"  리스·렌트 이 차종 {len(rows)}대 중 {n_lease_here}대 "
               f"(순위에서는 제외 — 표시 가격이 인수금이라 차값과 다릅니다)")
     if market.low_confidence:
         print("  ! 표본이 적어 시세선 신뢰도가 낮습니다.")

@@ -137,14 +137,25 @@ def _scatter_svg(rows: list[dict], market) -> str:
                    and scoring.is_buy_candidate(r))
         top = bool(in_rank and rank and rank <= 5)
 
+        # 색은 '모든 걸 감안한 뒤' 의 최종 판정으로 칠한다.
+        # 시세선 대비 싼지만 보면, 사고·과주행·배터리 보증 부족을 금액으로
+        # 뺀 결과가 화면에 안 나타난다.
+        verdict = r.get("value_verdict") or ""
+        bad_risks = [f for f in scoring.risk_flags(r) if f["level"] == "bad"]
         if not in_rank:
             fill, op, stroke, rad = "var(--mid)", "0.18", "var(--mid)", 4.0
         else:
-            if sg is None:
+            if verdict == "설명되지 않는 저평가":
+                # 흠결을 다 빼고도 싸다. 다만 빨간 주의 지표가 하나라도
+                # 있으면 파랑을 주지 않는다 — 그래프만 보고 '가성비 좋네'
+                # 하고 클릭하는 것을 막기 위해서다. 금액은 그대로 두고
+                # 색 표시만 낮춘다.
+                fill = "var(--amber)" if bad_risks else "var(--good)"
+            elif verdict == "일부 설명됨":
+                fill = "var(--amber)"
+            elif verdict == "할인 이유 충분":
                 fill = "var(--mid)"
-            elif sg >= 0.5:
-                fill = "var(--good)"
-            elif sg <= -0.5:
+            elif verdict == "고평가":
                 fill = "var(--bad)"
             else:
                 fill = "var(--mid)"
@@ -157,6 +168,10 @@ def _scatter_svg(rows: list[dict], market) -> str:
             bits.append(f"적정가 대비 {gap:+,.0f}만원 ({pct:+.1f}%)")
         if sg is not None:
             bits.append(f"{sg:+.2f}σ")
+        if in_rank and verdict:
+            bits.append(f"판정: {verdict}")
+        if in_rank and bad_risks:
+            bits.append("주의: " + " · ".join(f["label"] for f in bad_risks))
         if not in_rank:
             bits.append("순위 제외 · 시세 표본")
         title = "  |  ".join(b for b in bits if b)
@@ -220,7 +235,13 @@ def _market_card(market, rows: list[dict]) -> str:
                   '<b>잔존율(가격÷신차가)</b>을 회귀했습니다. 적정가는 '
                   '잔존율 × 그 매물의 신차가입니다 — 비싼 트림이 '
                   '&lsquo;고평가&rsquo;로 잘못 잡히는 것을 막습니다.</p>')
-    stats = getattr(market, "trim_stats", None) or []
+    # 통합 시세선을 쓰면 market 은 두 카드가 같은 객체다. 그대로 찍으면
+    # BMW 카드에 EQE 트림이, EQE 카드에 BMW 트림이 함께 나온다.
+    # 시세선 수식은 공유가 맞지만 트림 표와 가격 통계는 각자 것이어야 한다.
+    import scoring
+    own = {scoring.normalize_trim(r.get("trim")) for r in rows}
+    stats = [st for st in (getattr(market, "trim_stats", None) or [])
+             if st.get("trim") in own]
     if stats:
         rowsh = "".join(
             f'<tr class="{"on" if st["applied"] else ""}">'
@@ -239,9 +260,10 @@ def _market_card(market, rows: list[dict]) -> str:
             f'</tr></thead><tbody>{rowsh}</tbody></table>')
     if market.n_dropped:
         extra += f'<p class="muted">이상치 제외: {_e(market.dropped_note)}</p>'
-    if market.n_lease:
-        extra += (f'<p class="muted">시세 표본에 리스·렌트 승계 {market.n_lease}대가 '
-                  f'포함돼 있습니다 (순위에서는 제외).</p>')
+    n_lease_here = sum(1 for r in rows if scoring.is_lease_listing(r))
+    if n_lease_here:
+        extra += (f'<p class="muted">이 차종 매물 {len(rows)}대 중 리스·렌트 승계가 '
+                  f'{n_lease_here}대입니다 (순위에서는 제외, 시세 표본으로만 사용).</p>')
 
     warn = ('<p class="warn">표본이 적어 시세선의 신뢰도가 낮습니다. '
             '잔차 점수를 절대적으로 믿지 마세요.</p>') if market.low_confidence else ""
@@ -252,7 +274,7 @@ def _market_card(market, rows: list[dict]) -> str:
       <div class="stats">
         <div><span class="k">매물 수</span><span class="v">{len(rows)}대</span></div>
         <div><span class="k">가격 중앙값</span><span class="v">{fmt_manwon(med)}</span></div>
-        <div><span class="k">가격 범위</span><span class="v">{fmt_manwon(market.price_min)} ~ {fmt_manwon(market.price_max)}</span></div>
+        <div><span class="k">가격 범위</span><span class="v">{fmt_manwon(min(prices) if prices else 0)} ~ {fmt_manwon(max(prices) if prices else 0)}</span></div>
         <div><span class="k">주행 중앙값</span><span class="v">{fmt_km(med_km)}</span></div>
       </div>
       <p class="fit">{_e(fit)}</p>
@@ -260,9 +282,12 @@ def _market_card(market, rows: list[dict]) -> str:
       {warn}
       {_scatter_svg(rows, market)}
       <div class="legend">
-        <span><i class="lg good"></i>저평가 (+0.5&sigma; 이상)</span>
-        <span><i class="lg mid"></i>시세선 근처 (&plusmn;0.5&sigma; 이내 — 싸지도 비싸지도 않음)</span>
-        <span><i class="lg bad"></i>고평가 (&minus;0.5&sigma; 이하)</span>
+        <span><i class="lg good"></i><b>진짜 가성비</b> — 사고·주행거리·배터리 보증 등
+          모든 흠결을 금액으로 빼고도 싼 이유를 못 찾았고, 빨간 주의 지표도 없음</span>
+        <span><i class="lg amber"></i>일부만 설명됨, 또는 싼 이유를 못 찾았지만
+          <b>빨간 주의 지표가 있음</b> (과주행·배터리 보증 부족 등)</span>
+        <span><i class="lg mid"></i>할인 이유 충분 — 싼 이유가 다 설명됨 (제값)</span>
+        <span><i class="lg bad"></i>고평가</span>
         <span><i class="lg out"></i>순위 제외 — 리스·렌트이거나 구매 후보가 아닌 트림
           (시세 표본으로만 사용)</span>
         <span><i class="lg top"></i>순위 1~5위 (차량번호 표시)</span>
@@ -655,14 +680,14 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
 CSS = """
 :root{--bg:#f7f7f5;--fg:#1c1c1a;--muted:#6b6b66;--card:#fff;--bd:#e2e2dd;
 --good:#2563eb;--bad:#dc2626;--mid:#9ca3af;--line:#7c3aed;--grid:#ececE6;
---grid-bg:#fbfbf9;--dot-stroke:#fff;--plate-bg:#111;--plate-fg:#ffd400;--warnbg:#fff7ed;--warnfg:#9a3412}
+--grid-bg:#fbfbf9;--dot-stroke:#fff;--plate-bg:#111;--plate-fg:#ffd400;--warnbg:#fff7ed;--warnfg:#9a3412;--amber:#d97706}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){
 --bg:#16161a;--fg:#ececec;--muted:#9a9a94;--card:#1e1e23;--bd:#33333a;
 --grid:#2c2c33;--grid-bg:#1a1a1f;--dot-stroke:#1e1e23;--mid:#6b7280;
---warnbg:#3a2a12;--warnfg:#fdba74}}
+--warnbg:#3a2a12;--warnfg:#fdba74;--amber:#f59e0b}}
 :root[data-theme=dark]{--bg:#16161a;--fg:#ececec;--muted:#9a9a94;--card:#1e1e23;
 --bd:#33333a;--grid:#2c2c33;--grid-bg:#1a1a1f;--dot-stroke:#1e1e23;--mid:#6b7280;
---warnbg:#3a2a12;--warnfg:#fdba74}
+--warnbg:#3a2a12;--warnfg:#fdba74;--amber:#f59e0b}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);
 font:14px/1.6 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
@@ -782,6 +807,7 @@ tr.row-photo td{background:rgba(124,45,18,.06)}
 .lg.good{background:var(--good)}
 .lg.mid{background:var(--mid)}
 .lg.bad{background:var(--bad)}
+.lg.amber{background:var(--amber)}
 .lg.out{background:var(--mid);opacity:.25;border:1px solid var(--mid)}
 .lg.top{background:transparent;border:3px solid var(--dot-stroke);
         width:13px;height:13px}
