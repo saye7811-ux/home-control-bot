@@ -12,10 +12,12 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import os
 import sys
 
 import config
+import history
 import report as report_mod
 import scoring
 from common import (
@@ -40,6 +42,11 @@ SCORED_FIELDS = [
     "insp_worst_status",
     "baseline_manwon", "fair_price_manwon", "value_gap_manwon",
     "value_gap_pct", "value_gap_sigma", "sigma_manwon",
+    "value_verdict", "value_verdict_note", "discount_priced_in",
+    "discount_extra", "discount_extra_manwon", "discount_unexplained_manwon",
+    "days_on_market", "days_on_market_basis", "first_seen", "last_seen",
+    "price_first_manwon", "price_prev_manwon", "price_change_manwon",
+    "price_change_count", "insurance_not_joined", "re_registered", "loan_count",
     "sample_only", "sample_only_reason", "origin_price_manwon", "sell_type",
     "page_is_image",
     "price_breakdown", "price_unknowns", "score_points",
@@ -175,6 +182,151 @@ def print_price_bands(rows) -> None:
               f"{(f'{med:+.2f}σ' if med is not None else '-'):>8}")
 
 
+def print_lease_impact(groups: list) -> None:
+    """리스·렌트를 시세 표본에 넣었을 때와 뺐을 때를 나란히 보여준다.
+
+    리스·렌트 승계는 표시 가격이 차값이 아니라 인수금이다. 표본에 넣으면
+    시세선이 아래로 당겨지고, 그러면 멀쩡한 매물이 죄다 '고평가' 로
+    보인다. 차이가 작으면 표본을 키우는 쪽이 낫고, 크면 빼야 한다.
+    """
+    rows_all = [r for _k, _t, g in groups for r in g]
+    lease = [r for r in rows_all if scoring.is_lease_listing(r)]
+    if not lease:
+        return
+    print(f"\n{_hr('━')}")
+    print(f" 리스·렌트 {len(lease)}대를 시세 표본에 넣을 것인가")
+    print(_hr('━'))
+    print(" 승계 매물의 표시 가격은 차값이 아니라 인수금입니다. 표본에 넣으면")
+    print(" 시세선이 아래로 당겨져 멀쩡한 매물이 죄다 '고평가' 로 보일 수 있습니다.")
+    print("")
+    print(f" {'차종':<24}{'포함 잔존율':>12}{'제외 잔존율':>12}{'차이':>10}"
+          f"{'포함 잔차':>10}{'제외 잔차':>10}")
+    big = False
+    for key, target, group in groups:
+        with_l = scoring.fit_market(group, key, target["label"])
+        without = scoring.fit_market(
+            [r for r in group if not scoring.is_lease_listing(r)], key, target["label"])
+        a = history.reference_retention(with_l)
+        b = history.reference_retention(without)
+        if a is None or b is None:
+            continue
+        d = (b - a) * 100
+        if abs(d) >= 1.0:
+            big = True
+        print(f" {target['label']:<24}{a*100:>11.1f}%{b*100:>11.1f}%"
+              f"{d:>+9.2f}%p{with_l.resid_std*100:>9.2f}%p"
+              f"{without.resid_std*100:>9.2f}%p")
+    print("")
+    if big:
+        print(" ! 차이가 1%p 이상입니다 — 인수금이 차값으로 섞여 시세선을 끌고 있습니다.")
+        print("   config.INCLUDE_LEASE_IN_BASELINE = False 로 두는 것을 권합니다.")
+    else:
+        print(" 차이가 작습니다 — 표본을 키우는 쪽(포함)이 유리합니다.")
+    print(f"   현재 설정: INCLUDE_LEASE_IN_BASELINE = "
+          f"{getattr(config, 'INCLUDE_LEASE_IN_BASELINE', True)}")
+    print("   (순위·추천에서는 설정과 무관하게 항상 제외됩니다)")
+
+
+def print_pooling(pool: dict, per_model: list) -> None:
+    """차종을 합친 시세선이 나은지 따로가 나은지, 근거와 함께 보여준다."""
+    if len(per_model) < 2:
+        return
+    print(f"\n{_hr('━')}")
+    print(" 차종 통합 시세선 검토")
+    print(_hr('━'))
+    print(" 잔존율(가격/신차가)로 정규화했으니 브랜드가 달라도 원리상 한 줄로")
+    print(" 세울 수 있습니다. 합치면 표본이 배로 늘어 계수가 안정됩니다.")
+    print(" 다만 브랜드별 감가 속도가 다르면 합치는 순간 양쪽 다 틀린 선이 됩니다.")
+    print("")
+    for m, _g in per_model:
+        print(f"   {m.label:<28} n={m.n:>3}  잔차 ±{m.resid_std*100:.2f}%p  "
+              f"R²={m.r2:.3f}")
+    sep, pooled = pool["sep_resid"], pool["pooled"]
+    print(f"   {'따로 그린 두 선의 결합 잔차':<28}        ±{sep*100:.2f}%p")
+    print(f"   {'합친 선':<28} n={pooled.n:>3}  잔차 ±{pooled.resid_std*100:.2f}%p  "
+          f"R²={pooled.r2:.3f}")
+    print("")
+    print(f"   판단({pool['mode']}): {pool['verdict']}")
+
+
+def print_run_diff(diff: dict) -> None:
+    """지난 실행과 무엇이 달라졌나.
+
+    매주 돌리며 지켜보는 용도라, 전체 순위보다 '이번 주에 바뀐 것' 이
+    먼저 보여야 한다.
+    """
+    if not diff.get("has_prev"):
+        print(f"\n{_hr('━')}")
+        print(" 지난 실행 기록이 없습니다 — 이번이 첫 수집입니다.")
+        print(" 다음 실행부터 신규·가격인하·사라진 매물을 여기에 보여드립니다.")
+        print(_hr('━'))
+        return
+
+    print(f"\n{_hr('━')}")
+    print(f" 지난 실행({diff['prev_date']}) 이후 달라진 것")
+    print(_hr('━'))
+
+    def _line(r, extra=""):
+        return (f"   {r.get('plate_no') or r.get('vehicle_id'):<11} "
+                f"{r.get('model_label',''):<12} "
+                f"{fmt_manwon(r.get('price_manwon')):>11}  "
+                f"{fmt_km(r.get('mileage_km')):>11}  {extra}")
+
+    if diff["price_down"]:
+        print(f"\n 가격 내림 {len(diff['price_down'])}건  <- 먼저 보세요")
+        for r in diff["price_down"][:12]:
+            d = r["price_change_manwon"]
+            print(_line(r, f"{d:+,}만원 (이전 {r['price_prev_manwon']:,}만원)"))
+    if diff["new"]:
+        print(f"\n 새로 올라온 매물 {len(diff['new'])}건")
+        for r in diff["new"][:12]:
+            print(_line(r))
+    if diff["price_up"]:
+        print(f"\n 가격 올림 {len(diff['price_up'])}건")
+        for r in diff["price_up"][:6]:
+            d = r["price_change_manwon"]
+            print(_line(r, f"{d:+,}만원"))
+    if diff["gone"]:
+        print(f"\n 사라진 매물 {len(diff['gone'])}건 (팔렸거나 내렸습니다)")
+        for r in diff["gone"][:12]:
+            print(_line(r))
+    print(f"\n 변동 없음 {diff['unchanged']}건")
+
+
+def print_market_trend() -> None:
+    """시세선 자체가 어느 쪽으로 움직이는가.
+
+    한 매물이 싼지는 시세선으로 보지만, 시장 전체가 빠지는 중이라면
+    지금 저평가인 차도 몇 주 뒤엔 평범한 가격이 된다.
+    """
+    trend = history.market_trend()
+    rows = [t for t in trend if t.get("ref_retention") not in ("", None)]
+    if len(rows) < 2:
+        return
+    print(f"\n{_hr('━')}")
+    print(f" 시세 추이 — 기준점 {history.REFERENCE_AGE:.0f}년 / "
+          f"{history.REFERENCE_KM:,}km 에서의 잔존율")
+    print(_hr('━'))
+    print(" 표본 구성이 주마다 달라지므로, 한 점을 정해 두고 그 점의 값을 비교합니다.")
+    by_model: dict[str, list] = {}
+    for t in rows:
+        by_model.setdefault(t["model_key"], []).append(t)
+    for key, ts in by_model.items():
+        ts.sort(key=lambda x: x["date"])
+        label = ts[-1].get("label") or key
+        print(f"\n  {label}")
+        prev = None
+        for t in ts[-8:]:
+            r = float(t["ref_retention"]) * 100
+            mark = ""
+            if prev is not None:
+                d = r - prev
+                mark = f"  {d:+.2f}%p" + ("  내림" if d < -0.05 else
+                                           "  오름" if d > 0.05 else "")
+            print(f"    {t['date']}  잔존율 {r:5.1f}%  (표본 {t['n']}대){mark}")
+            prev = r
+
+
 def print_top(rows, n, sort_label: str = "") -> None:
     print(f"\n{_hr('━')}")
     print(f" 저평가 상위 {min(n, len(rows))}대"
@@ -226,6 +378,16 @@ def print_top(rows, n, sort_label: str = "") -> None:
             if sg is not None and abs(sg) < 1.0:
                 print("       ! 시세선 오차 범위 안입니다 — 통계적으로 "
                       "'싸다' 고 보기 어렵습니다")
+
+        verdict = r.get("value_verdict") or ""
+        if verdict:
+            mark = {"설명되지 않는 저평가": ">>", "일부 설명됨": " -",
+                    "할인 이유 충분": " x", "고평가": "  "}.get(verdict, "  ")
+            print(f"     {mark} [{verdict}] {r.get('value_verdict_note','')}")
+        for piece in str(r.get("discount_extra") or "").split(" ; "):
+            if piece and "=" in piece:
+                lab, amt = piece.rsplit("=", 1)
+                print(f"          싼 이유  {lab:<50} {amt:>10}")
         print(f"       {r.get('model_label')} · {r.get('trim')} · {r.get('region')}"
               f"  |  {r.get('year')}.{str(r.get('month') or '').zfill(2)}"
               f"  |  {fmt_km(r.get('mileage_km'))}")
@@ -280,14 +442,33 @@ def main() -> int:
         rows.append(scoring.enrich(r))
 
     targets = {t["key"]: t for t in config.TARGETS}
-    models, scored_all = [], []
-
+    groups = []
     for key, target in targets.items():
         group = [r for r in rows if r.get("model_key") == key]
         if not group:
             warn(f"{target['label']}: 매물 0건 — 건너뜁니다.")
             continue
-        market = scoring.fit_baseline(group, key, target["label"])
+        groups.append((key, target, group))
+
+    if not groups:
+        die("점수를 매길 매물이 없습니다.")
+
+    # 1) 차종별 시세선
+    per_model = [(scoring.fit_baseline(g, k, t["label"]), g) for k, t, g in groups]
+
+    # 2) 합쳐도 되는지 실제로 재 본다. 잔존율로 정규화했으니 브랜드가
+    #    달라도 원리상 한 줄로 세울 수 있고, 합치면 표본이 배로 늘어난다.
+    pool = scoring.compare_pooling(per_model, [r for _k, _t, g in groups for r in g])
+    print_pooling(pool, per_model)
+    print_lease_impact(groups)
+
+    models, scored_all = [], []
+    for (key, target, group), (m, _g) in zip(groups, per_model):
+        market = pool["pooled"] if pool["use_pooled"] else m
+        if pool["use_pooled"]:
+            # 표시는 차종 이름으로 하되 계수는 통합선을 쓴다.
+            market = copy.copy(market)
+            market.key, market.label = key, target["label"] + " (통합 시세선)"
         for r in group:
             scoring.score_row(r, market, target)
         models.append((market, group))
@@ -346,6 +527,11 @@ def main() -> int:
         v = to_float(r.get(sort_field))
         return v if v is not None else -9e9   # 산출 불가 매물은 맨 뒤로
 
+    # 저평가가 '이유 있는 할인' 인지 '설명되지 않는 기회' 인지 가른다.
+    # 이 도구의 핵심 질문이다 — 싼 차가 아니라 '이유 없이 싼 차' 를 찾는다.
+    for r in scored_all:
+        scoring.judge_value(r)
+
     ranked.sort(key=_key, reverse=True)
     log(f"순위 기준: {sort_label}")
     for i, r in enumerate(ranked, 1):
@@ -357,14 +543,27 @@ def main() -> int:
               ranked + lease + excluded
               + [r for r in scored_all if not _detailed(r)],
               SCORED_FIELDS)
-    write_json(MARKET_JSON, {m.key: m.__dict__ for m, _ in models})
+    market_dump = {}
+    for m, _rs in models:
+        d = dict(m.__dict__)
+        # 기준점(3년/4.5만km) 잔존율 — 주마다 표본 구성이 달라도
+        # 이 한 점을 비교하면 시장이 오르는지 내리는지 보인다.
+        d["ref_retention"] = history.reference_retention(m)
+        market_dump[m.key] = d
+    write_json(MARKET_JSON, market_dump)
+    history.record_markets(market_dump)
     log(f"저장: {SCORED_CSV} (순위 {len(ranked)}건 + 표본 {skipped}건)")
 
+    diff = history.diff_runs(scored_all)
+    print_run_diff(diff)
+    print_market_trend()
     print_top(ranked, args.top, sort_label=sort_label)
     print_price_bands(ranked)
 
     if not args.no_report:
-        html = report_mod.build_html(models, ranked[:max(args.top, 20)], stage="stage2")
+        html = report_mod.build_html(
+            models, ranked[:max(args.top, 20)], stage="stage2",
+            diff=diff, trend=history.market_trend())
         with open(REPORT_HTML, "w", encoding="utf-8") as f:
             f.write(html)
         log(f"저장: {REPORT_HTML}")

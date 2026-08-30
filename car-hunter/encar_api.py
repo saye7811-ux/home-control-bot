@@ -598,10 +598,20 @@ RECORD_FIELDS: dict[str, tuple[str, ...]] = {
     "rental_use_count":     ("loan", "loanCnt", "rentCnt", "rentalCnt"),
     "business_use_count":   ("business", "businessCnt", "businessCount"),
     "government_use_count": ("government", "governmentCnt", "governmentCount"),
+    # 저당(담보) 설정 — 용도 이력과는 다른 항목이다
+    "loan_count":           ("loan", "loanCnt"),
     # 최초등록일
     "first_registration":   ("firstDate", "firstRegDate", "firstRegistrationDate",
                              "firstRegisterDate"),
 }
+
+# 자차보험(자기차량손해) 미가입 기간.
+#
+# 보험이력에 notJoinDate1~5 로 온다. 이 기간에 난 사고는 보험 기록에
+# 남지 않으므로, '무사고' 표기의 신뢰도가 그만큼 떨어진다.
+# 값이 없으면(None) 미가입 기간이 없다는 뜻이 아니라 '응답에 없음' 일
+# 수도 있으므로, 0 으로 채우지 않고 빈 값으로 둔다.
+NOT_JOIN_DATE_FIELDS = tuple(f"notJoinDate{i}" for i in range(1, 6))
 
 # 사고 상세 배열이 있을 만한 경로
 ACCIDENT_LIST_PATHS = ("accidents", "accidentList", "records", "history", "list")
@@ -638,9 +648,17 @@ def normalize_record(record: Any) -> dict:
     out["record_fields_null"] = []
     out["use_history"] = []
     out["accident_details"] = []
+    out["not_join_periods"] = []
 
     if not isinstance(record, dict):
         return out
+
+    # 자차보험 미가입 기간. 이 기간의 사고는 보험 기록에 안 남으므로
+    # '무사고' 표기의 신뢰도가 그만큼 떨어진다.
+    for f in NOT_JOIN_DATE_FIELDS:
+        v = record.get(f)
+        if v not in (None, "", 0):
+            out["not_join_periods"].append(str(v))
 
     out["record_fields_null"] = []
     for std, cands in RECORD_FIELDS.items():
@@ -3148,6 +3166,16 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
 
     # 실제 응답에서 확인된 유용한 필드들
     origin_price = to_int(pick(detail or {}, "category.originPrice", "originPrice"))
+
+    # 매물이 처음 올라온 날. 딜러 보유 기간을 여기서 잰다.
+    # 오래 안 팔린 매물은 협상 여지가 크지만, 남들이 다 보고 지나쳤다는
+    # 뜻이기도 하다 (숨은 흠결의 신호). 둘 다 표시한다.
+    first_ad = pick(detail or {}, "manage.firstAdvertisedDateTime",
+                    "manage.firstAdvertisedDate", "firstAdvertisedDateTime",
+                    "category.firstAdvertisedDate")
+    re_registered = pick(detail or {}, "manage.reRegistered", "reRegistered")
+    lease_rent_info = pick(detail or {}, "advertisement.leaseRentInfo",
+                           "leaseRentInfo")
     warranty = pick(detail or {}, "category.warranty", "warranty", default="")
     if isinstance(warranty, (dict, list)):
         warranty = " ".join(str(x) for x in _walk_strings(warranty))[:200]
@@ -3166,6 +3194,11 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "vehicle_id": vid,
         "plate_no": plate or "",
         "origin_price_manwon": origin_price if origin_price is not None else "",
+        "first_advertised": str(first_ad)[:19] if first_ad else "",
+        "re_registered": bool(re_registered) if re_registered is not None else "",
+        "lease_rent_info": str(lease_rent_info)[:120] if lease_rent_info else "",
+        "insurance_not_joined": " | ".join(rec.get("not_join_periods") or []),
+        "loan_count": _blank(rec.get("loan_count")),
         "warranty": str(warranty)[:200] if warranty else "",
         "view_count": view_count if view_count is not None else "",
         "subscribe_count": subscribe_count if subscribe_count is not None else "",

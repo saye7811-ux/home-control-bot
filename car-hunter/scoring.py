@@ -505,6 +505,144 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# "왜 싼가" — 할인 사유로 저평가를 설명해 본다
+# ---------------------------------------------------------------------------
+def explain_discount(row: dict, baseline: float | None) -> dict:
+    """이 매물이 싼 이유를 찾아 금액으로 환산한다.
+
+    두 종류를 나눠서 본다.
+
+      (가) 이미 적정가에 반영된 흠결 — 사고·과주행·배터리·소유이력.
+           적정가를 이미 낮췄으므로 여기서 또 세면 이중 계산이다.
+           표시만 하고 '설명되는 금액' 에는 넣지 않는다.
+
+      (나) 적정가 식에 없는 할인 사유 — 성능기록부가 사진뿐, 자차보험
+           미가입, 딜러 장기 보유, 재등록, 저당. 이것들이 진짜 답이다.
+           딜러가 이런 이유로 값을 깎았다면 그 차는 '이유 있어 싼' 것이다.
+
+    (나)의 합이 저평가 폭보다 크면 할인 이유가 충분한 것이고, 작으면
+    설명되지 않는 저평가라 직접 확인할 값어치가 있다.
+    """
+    D = config.DISCOUNT_REASONS
+    out = {"priced_in": [], "extra": [], "extra_manwon": 0.0,
+           "verdict": "", "verdict_note": ""}
+    if not baseline or baseline <= 0:
+        return out
+
+    def pct(p: float) -> float:
+        return baseline * p / 100.0
+
+    # --- (가) 이미 적정가에 반영된 것 — 표시용 ---
+    for lab, amt in _priced_in_items(row):
+        out["priced_in"].append((lab, amt))
+
+    # --- (나) 적정가에 안 들어간 할인 사유 ---
+    if _truthy(row.get("page_is_image")):
+        a = pct(D["page_is_image_pct"])
+        out["extra"].append(("성능기록부가 사진뿐 — 수리 부위·고전원전기장치를 "
+                             "확인할 수 없음", -a))
+        out["extra_manwon"] += a
+
+    gaps = [x for x in str(row.get("insurance_not_joined") or "").split(" | ") if x]
+    if gaps:
+        a = min(pct(D["insurance_gap_pct"] * len(gaps)),
+                pct(D["insurance_gap_max_pct"]))
+        out["extra"].append((f"자차보험 미가입 기간 {len(gaps)}구간 "
+                             f"({', '.join(gaps[:2])}{'...' if len(gaps) > 2 else ''}) "
+                             f"— 그 기간 사고는 보험기록에 남지 않음", -a))
+        out["extra_manwon"] += a
+
+    dom = to_int(row.get("days_on_market"))
+    if dom is not None:
+        for upper, p, label in D["days_on_market_tiers"]:
+            if dom <= upper:
+                if p > 0:
+                    a = pct(p)
+                    out["extra"].append((f"{label} ({dom}일째) — 협상 여지이자 "
+                                         f"남들이 지나쳤다는 신호", -a))
+                    out["extra_manwon"] += a
+                break
+
+    if _truthy(row.get("re_registered")):
+        a = pct(D["re_registered_pct"])
+        out["extra"].append(("재등록 매물 — 한 번 안 팔려 다시 올림", -a))
+        out["extra_manwon"] += a
+
+    loan = to_int(row.get("loan_count"))
+    if loan:
+        a = pct(D["loan_pct"])
+        out["extra"].append((f"저당 설정 이력 {loan}건", -a))
+        out["extra_manwon"] += a
+
+    if str(row.get("price_unknowns") or "").find("수리 부위를 모릅니다") >= 0:
+        a = pct(D["accident_parts_unknown_pct"])
+        out["extra"].append(("사고는 있으나 수리 부위를 확인할 수 없음", -a))
+        out["extra_manwon"] += a
+
+    return out
+
+
+def _priced_in_items(row: dict) -> list[tuple[str, float]]:
+    """적정가 내역에서 '깎은 항목' 만 추려 온다 (표시용)."""
+    items = []
+    for piece in str(row.get("price_breakdown") or "").split(" || "):
+        if "=" not in piece:
+            continue
+        lab, amt = piece.rsplit("=", 1)
+        if lab.startswith("=") or lab.startswith("기준 시세"):
+            continue
+        v = to_float(amt.replace(",", ""))
+        if v is not None and v < 0:
+            items.append((lab, v))
+    return items
+
+
+def judge_value(row: dict) -> dict:
+    """저평가가 '이유 있는 할인' 인지 '설명되지 않는 기회' 인지 가른다."""
+    D = config.DISCOUNT_REASONS
+    gap = to_float(row.get("value_gap_manwon"))
+    baseline = to_float(row.get("baseline_manwon"))
+    ex = explain_discount(row, baseline)
+
+    row["discount_priced_in"] = " ; ".join(
+        f"{lab}={amt:+,.0f}" for lab, amt in ex["priced_in"])
+    row["discount_extra"] = " ; ".join(
+        f"{lab}={amt:+,.0f}" for lab, amt in ex["extra"])
+    row["discount_extra_manwon"] = round(ex["extra_manwon"], 0)
+
+    if gap is None:
+        row["value_verdict"] = ""
+        row["value_verdict_note"] = "적정가 산출 불가"
+        return row
+
+    if gap <= 0:
+        row["value_verdict"] = "고평가"
+        row["value_verdict_note"] = "적정가보다 비쌉니다"
+        return row
+
+    explained = ex["extra_manwon"]
+    need = gap * D.get("explained_threshold", 1.0)
+    row["discount_unexplained_manwon"] = round(gap - explained, 0)
+
+    if explained >= need:
+        row["value_verdict"] = "할인 이유 충분"
+        row["value_verdict_note"] = (
+            f"저평가 {gap:,.0f}만원이 위 사유 {explained:,.0f}만원으로 설명됩니다 "
+            f"— 진짜 저평가로 보기 어렵습니다")
+    elif explained > 0:
+        row["value_verdict"] = "일부 설명됨"
+        row["value_verdict_note"] = (
+            f"저평가 {gap:,.0f}만원 중 {explained:,.0f}만원은 위 사유로 설명되고 "
+            f"{gap - explained:,.0f}만원이 남습니다 — 남은 만큼은 확인할 값어치가 있습니다")
+    else:
+        row["value_verdict"] = "설명되지 않는 저평가"
+        row["value_verdict_note"] = (
+            f"{gap:,.0f}만원이 싼데 그럴 만한 사유를 찾지 못했습니다 "
+            f"— 직접 확인해 볼 매물입니다")
+    return row
+
+
 def _is_accident_free(r: dict) -> bool:
     """보험이력으로 '확인된' 무사고만 True. 모르면 False."""
     if str(r.get("record_available", "")).strip().lower() not in ("true", "1", "y"):
@@ -549,6 +687,41 @@ def fit_baseline(rows: list[dict], key: str, label: str) -> MarketModel:
         m.accident_scale = B.get("accident_scale_when_all", 0.6)
     m.n_clean = len(clean)
     return m
+
+
+def compare_pooling(per_model: list[tuple], all_rows: list[dict]) -> dict:
+    """차종을 합친 시세선이 따로 그린 것보다 나은지 견준다.
+
+    잔존율로 정규화했으니 브랜드가 달라도 원리상 한 줄로 세울 수 있다.
+    합치면 표본이 배로 늘어 계수가 안정된다 — 다만 브랜드별 감가 속도가
+    다르면 합치는 순간 양쪽 다 틀린 선이 된다. 그래서 실제로 재 본다.
+
+    비교 기준은 잔차다. 따로 그린 두 선의 잔차를 자유도로 결합해
+    합친 선의 잔차와 견준다. 합쳐서 나빠지지 않으면 합친다.
+    """
+    B = config.BASELINE
+    mode = B.get("pool_models", "auto")
+    pooled = fit_baseline(all_rows, "pooled", "전 차종 통합")
+
+    num = den = 0.0
+    for m, _rs in per_model:
+        if not math.isfinite(m.resid_std):
+            continue
+        dof = max(m.n - 3, 1)
+        num += (m.resid_std ** 2) * dof
+        den += dof
+    sep_resid = math.sqrt(num / den) if den else float("nan")
+
+    ok = (math.isfinite(pooled.resid_std) and math.isfinite(sep_resid)
+          and pooled.resid_std <= sep_resid * B.get("pool_tolerance", 1.10))
+    use_pooled = (mode == "pooled") or (mode == "auto" and ok
+                                        and len(per_model) > 1)
+
+    return {"mode": mode, "pooled": pooled, "use_pooled": use_pooled,
+            "sep_resid": sep_resid, "pooled_resid": pooled.resid_std,
+            "verdict": ("합침 — 잔차가 나빠지지 않아 표본을 키우는 쪽이 낫습니다"
+                        if use_pooled else
+                        "따로 — 합치면 잔차가 커집니다 (브랜드별 감가 속도가 다름)")}
 
 
 def score_row(row: dict, market: MarketModel, target: dict) -> dict:

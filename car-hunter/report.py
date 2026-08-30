@@ -201,6 +201,47 @@ def _gap_cell(r: dict) -> str:
     return "".join(out)
 
 
+VERDICT_CLASS = {
+    "설명되지 않는 저평가": "v-gold",
+    "일부 설명됨": "v-warm",
+    "할인 이유 충분": "v-cool",
+    "고평가": "v-flat",
+}
+
+
+def _verdict_html(r: dict) -> str:
+    """'왜 싼가' — 이 도구의 핵심 판정.
+
+    적정가가 이미 사고·과주행 같은 흠결을 깎았는데도 더 싸다면, 그 이유가
+    따로 있는지 본다. 성능기록부가 사진뿐이거나, 자차보험 미가입 기간이
+    있거나, 몇 달째 안 팔리고 있다면 그럴 만해서 싼 것이다.
+    """
+    v = r.get("value_verdict") or ""
+    if not v:
+        return '<span class="muted small">판정 불가</span>'
+    cls = VERDICT_CLASS.get(v, "v-flat")
+    out = [f'<div class="verdict {cls}">{_e(v)}</div>',
+           f'<div class="muted small">{_e(r.get("value_verdict_note") or "")}</div>']
+
+    extra = [x for x in str(r.get("discount_extra") or "").split(" ; ") if "=" in x]
+    if extra:
+        rows = []
+        for piece in extra:
+            lab, amt = piece.rsplit("=", 1)
+            rows.append(f'<tr><td>{_e(lab)}</td><td class="num">{_e(amt)}</td></tr>')
+        out.append('<div class="small" style="margin-top:6px"><b>싼 이유로 설명되는 것</b></div>')
+        out.append(f'<table class="bd">{"".join(rows)}</table>')
+    else:
+        out.append('<div class="muted small" style="margin-top:6px">'
+                   '적정가에 안 들어간 할인 사유를 찾지 못했습니다.</div>')
+
+    dom = to_int(r.get("days_on_market"))
+    if dom is not None:
+        basis = r.get("days_on_market_basis") or ""
+        out.append(f'<div class="muted small">딜러 보유 {dom}일 ({_e(basis)})</div>')
+    return "".join(out)
+
+
 def _breakdown_html(r: dict) -> str:
     """적정가 산출 내역을 항목별 금액으로 펼친다."""
     raw = str(r.get("price_breakdown") or "")
@@ -367,6 +408,7 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         <td class="num">{_e(r.get('battery_remaining_pct'))}%
           <div class="muted small">{_e(r.get('battery_binding'))}</div></td>
         <td class="num">{_gap_cell(r)}</td>
+        <td class="vcell">{_verdict_html(r)}</td>
         <td class="bdcell">{_breakdown_html(r)}</td>
         <td class="reasons">
           {"".join(f'<div class="p">＋ {_e(s)}</div>' for s in plus) or '<div class="muted">-</div>'}
@@ -428,6 +470,13 @@ border:2px solid var(--plate-fg)}
          background:var(--good);color:#fff}
 .gap-sig.weak{background:transparent;color:var(--muted);
               border:1px solid var(--border);font-weight:600}
+.vcell{max-width:280px}
+.verdict{display:inline-block;padding:3px 9px;border-radius:6px;
+         font-weight:800;font-size:13px;margin-bottom:4px}
+.v-gold{background:#b45309;color:#fff}
+.v-warm{background:#a16207;color:#fff}
+.v-cool{background:var(--border);color:var(--muted)}
+.v-flat{background:transparent;color:var(--muted);border:1px solid var(--border)}
 .bdcell{min-width:250px}
 table.bd{width:100%;border-collapse:collapse;font-size:11.5px;min-width:auto}
 table.bd td{padding:2px 4px;border:0;vertical-align:top}
@@ -451,8 +500,104 @@ footer{margin-top:40px;color:var(--muted);font-size:12px}
 """
 
 
+def _diff_section(diff: dict | None) -> str:
+    """지난 실행 이후 달라진 것. 매주 지켜보는 용도라 맨 위에 온다."""
+    if not diff:
+        return ""
+    if not diff.get("has_prev"):
+        return ('<h2>지난 실행과 비교</h2><div class="card">'
+                '<p class="muted">이번이 첫 수집입니다. 다음 실행부터 새로 올라온 매물, '
+                '가격이 내린 매물, 사라진 매물을 여기에 보여드립니다.</p></div>')
+
+    def _tbl(rows, cols, empty):
+        if not rows:
+            return f'<p class="muted">{empty}</p>'
+        head = "".join(f"<th>{c}</th>" for c, _ in cols)
+        body = "".join(
+            "<tr>" + "".join(f"<td>{fn(r)}</td>" for _, fn in cols) + "</tr>"
+            for r in rows[:15])
+        return (f'<div class="tablewrap"><table><thead><tr>{head}</tr></thead>'
+                f'<tbody>{body}</tbody></table></div>')
+
+    def _plate(r):
+        return _e(r.get("plate_no") or r.get("vehicle_id") or "?")
+
+    def _model(r):
+        return _e(r.get("model_label") or "")
+
+    def _price(r):
+        return fmt_manwon(r.get("price_manwon"))
+
+    def _km(r):
+        return fmt_km(r.get("mileage_km"))
+
+    def _chg(r):
+        d = to_float(r.get("price_change_manwon"))
+        if d is None:
+            return "-"
+        cls = "good" if d < 0 else "bad"
+        prev = to_float(r.get("price_prev_manwon"))
+        extra = f' <span class="muted small">(이전 {prev:,.0f}만원)</span>' if prev else ""
+        return f'<b class="{cls}">{d:+,.0f}만원</b>{extra}'
+
+    base = [("차량번호", _plate), ("모델", _model), ("가격", _price), ("주행", _km)]
+    return f"""
+  <h2>지난 실행({_e(diff['prev_date'])}) 이후 달라진 것</h2>
+  <div class="card">
+    <h3>가격이 내린 매물 <span class="muted">{len(diff['price_down'])}건</span></h3>
+    <p class="muted">딜러가 값을 내렸다는 것은 안 팔리고 있다는 뜻입니다. 협상 여지가 큽니다.</p>
+    {_tbl(diff['price_down'], base + [("변동", _chg)], "없습니다.")}
+    <h3>새로 올라온 매물 <span class="muted">{len(diff['new'])}건</span></h3>
+    {_tbl(diff['new'], base, "없습니다.")}
+    <h3>사라진 매물 <span class="muted">{len(diff['gone'])}건</span></h3>
+    <p class="muted">팔렸거나 딜러가 내린 매물입니다. 시장이 얼마나 빨리 도는지 보여줍니다.</p>
+    {_tbl(diff['gone'], base, "없습니다.")}
+    <p class="muted">변동 없음 {diff['unchanged']}건</p>
+  </div>"""
+
+
+def _trend_section(trend: list[dict] | None) -> str:
+    """시세선 자체의 추이. 시장이 빠지는 중이면 지금 싼 차도 곧 평범해진다."""
+    rows = [t for t in (trend or []) if t.get("ref_retention") not in ("", None)]
+    if len(rows) < 2:
+        return ""
+    by: dict[str, list] = {}
+    for t in rows:
+        by.setdefault(t["model_key"], []).append(t)
+    blocks = []
+    for key, ts in by.items():
+        ts.sort(key=lambda x: x["date"])
+        label = ts[-1].get("label") or key
+        cells, prev = [], None
+        for t in ts[-10:]:
+            r = float(t["ref_retention"]) * 100
+            d = "" if prev is None else f"{r - prev:+.2f}%p"
+            cls = "" if prev is None else ("bad" if r < prev else "good")
+            cells.append(f"<tr><td>{_e(t['date'])}</td>"
+                         f"<td class='num'>{r:.1f}%</td>"
+                         f"<td class='num'>{t.get('n', 0)}대</td>"
+                         f"<td class='num {cls}'>{d}</td></tr>")
+            prev = r
+        blocks.append(
+            f"<h3>{_e(label)}</h3><div class='tablewrap'><table>"
+            f"<thead><tr><th>실행일</th><th class='num'>잔존율</th>"
+            f"<th class='num'>표본</th><th class='num'>변화</th></tr></thead>"
+            f"<tbody>{''.join(cells)}</tbody></table></div>")
+    return f"""
+  <h2>시세 추이</h2>
+  <div class="card">
+    <p class="muted">기준점 3년 / 45,000km 에서의 잔존율입니다. 표본 구성이 주마다
+      달라지므로 한 점을 정해 두고 그 점의 값을 비교합니다.
+      <b>잔존율이 내려가는 중이면</b> 지금 저평가로 보이는 매물도 몇 주 뒤엔
+      평범한 가격이 됩니다. 서두를지 기다릴지를 여기서 판단하세요.</p>
+    {"".join(blocks)}
+  </div>"""
+
+
 def build_html(models: list[tuple], ranked: list[dict], stage: str,
-               notes: list[str] | None = None) -> str:
+               notes: list[str] | None = None,
+               diff: dict | None = None,
+               trend: list[dict] | None = None) -> str:
     stage_label = "최종 (헤이딜러 숨은이력 반영)" if stage == "final" else "1차 (엔카 데이터만)"
     banner = ""
     if stage != "final":
@@ -483,6 +628,8 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
   <p class="sub">단계: <b>{_e(stage_label)}</b> · 생성 {datetime.now():%Y-%m-%d %H:%M} ·
      분석 대상 {len(ranked)}대 표시</p>
   {banner}{note_html}
+  {_diff_section(diff)}
+  {_trend_section(trend)}
 
   <h2>모델별 시세 분포</h2>
   <div class="grid">{"".join(_market_card(m, rs) for m, rs in models)}</div>
@@ -509,6 +656,7 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
         <th>#</th><th>차량번호 / 모델</th><th class="num">가격</th>
         <th class="num">연식 / 주행</th><th class="num">연평균</th>
         <th class="num">배터리 보증</th><th class="num">적정가 대비<br><span class="small">만원 / % / &sigma;</span></th>
+        <th>왜 싼가 (판정)</th>
         <th>적정가 산출 내역</th><th>추천 / 주의 사유</th><th>링크</th>
       </tr></thead>
       <tbody>{_rank_rows(ranked, stage)}</tbody>

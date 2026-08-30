@@ -26,6 +26,7 @@ from datetime import datetime
 
 import config
 import encar_api as api
+import history
 from common import (
     BLOCKED_FLAG, DETAILS_JSON, LISTINGS_CSV, SAMPLES_DIR,
     die, ensure_dirs, log, read_csv, read_json, warn, write_csv, write_json,
@@ -65,6 +66,9 @@ LISTING_FIELDS = [
     "page_js_suspect", "page_detail_bad", "page_detail_unknown",
     "page_ev_hv_bad", "page_ev_hv_unknown", "page_ev_hv_checked", "page_parse_note",
     "page_is_image",
+    "first_advertised", "days_on_market", "re_registered", "lease_rent_info",
+    "insurance_not_joined", "loan_count", "first_seen", "last_seen",
+    "price_first_manwon", "price_prev_manwon", "price_change_manwon",
     "origin_price_manwon", "warranty", "view_count", "subscribe_count",
     "inspection_summary", "photo_url", "listing_url",
     "detail_fetched", "collected_at",
@@ -1055,9 +1059,14 @@ def cmd_collect(args) -> int:
 
     for r in all_rows:
         r.setdefault("collected_at", datetime.now().isoformat(timespec="seconds"))
+    # 이력에서 온 값(딜러 보유 기간, 처음 본 날, 가격 변동)을 먼저 채운다.
+    history.annotate(all_rows)
     write_csv(LISTINGS_CSV, all_rows, LISTING_FIELDS)
     write_json(DETAILS_JSON, details)
     log(f"저장: {LISTINGS_CSV} ({len(all_rows)}건), {DETAILS_JSON}")
+    # 오늘 수집분을 날짜 폴더에 보관한다. 매주 돌리며 지켜보는 용도라
+    # 지난 실행과 비교할 수 있어야 한다.
+    history.snapshot(all_rows, LISTING_FIELDS)
 
     if unreachable:
         print(_unreachable_msg(unreachable, len(all_rows)), file=sys.stderr)
