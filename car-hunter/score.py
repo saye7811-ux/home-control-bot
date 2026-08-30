@@ -41,7 +41,7 @@ SCORED_FIELDS = [
     "baseline_manwon", "fair_price_manwon", "value_gap_manwon",
     "price_breakdown", "price_unknowns", "score_points",
     "insp_unclassified", "battery_pack_damage",
-    "insp_diagnostics", "repair_source", "comment_accident_amount",
+    "insp_diagnostics", "repair_source",
     "insp_mileage", "mileage_gap_km",
     "penalty_mileage_rollback", "insp_waterlog", "insp_recall",
     "insp_recall_types", "insp_comments", "insp_needs_repair",
@@ -50,10 +50,15 @@ SCORED_FIELDS = [
     "excluded", "excluded_reason", "use_history",
     "plate_change_count", "theft_count", "record_fields_null",
     "first_registration_date", "age_basis",
-    "opt_sunroof", "opt_audio", "opt_hud", "opt_rwsteer",
     "flood_or_total_loss", "rental_or_commercial", "one_owner", "encar_diagnosed",
-    "seller_airsus_mention", "airsus_status", "airsus_keyword_hits",
-    "option_source", "warranty", "view_count", "subscribe_count",
+    "page_available", "repair_grade_source", "page_repair_notes",
+    "page_repair_penalty", "page_worst_rank", "page_worst_status",
+    "page_unmatched_parts", "page_mileage_gauge", "page_mileage",
+    "page_vin_state", "page_tuning", "page_special_history", "page_usage_change",
+    "page_recall", "page_recall_done", "page_accident_history", "page_simple_repair",
+    "page_first_registration", "page_inspection_valid", "page_inspector_note",
+    "page_detail_bad", "page_ev_hv_bad", "page_ev_hv_checked", "page_parse_note",
+    "warranty", "view_count", "subscribe_count",
     "score_value", "score_battery", "bonus_total", "penalty_overrun", "penalty_total",
     "score_value", "score_battery", "score_depreciation", "penalty_accident",
     "score_stage2", "score_total", "market_confidence", "detail_fetched",
@@ -81,6 +86,9 @@ def print_market_summary(market, rows) -> None:
     if kms:
         print(f"  주행거리  최저 {fmt_km(kms[0])}  /  중앙 {fmt_km(kms[len(kms)//2])}"
               f"  /  최고 {fmt_km(kms[-1])}")
+    print(f"  기준선    {market.basis} 매물 기준 "
+          f"(무사고 {market.n_clean}대 / 전체 {len(rows)}대, "
+          f"사고 할인 계수 x{market.accident_scale:.1f})")
     if market.method == "regression":
         print(f"  시세선    가격 ≈ {market.intercept:,.0f} "
               f"{market.coef_age:+,.0f}×연수 {market.coef_km:+,.1f}×(km/1000)"
@@ -134,9 +142,11 @@ def print_top(rows, n) -> None:
             for u in str(r["price_unknowns"]).split(" ; "):
                 if u:
                     print(f"       ! 정보없음: {u}")
-        mention = str(r.get("seller_airsus_mention", "")).strip().lower() in ("true", "1")
-        print(f"       ※ 에어서스: 판매자 설명 언급 {'있음' if mention else '없음'}"
-              f" (딜러 문구라 신뢰 불가 — 헤이딜러로 확인)")
+        src = r.get("repair_grade_source") or r.get("repair_source") or ""
+        if src:
+            print(f"       ※ 수리 부위 출처: {src}")
+        if r.get("page_ev_hv_bad"):
+            print(f"       !! 고전원전기장치 불량: {r['page_ev_hv_bad']}")
         if r.get("listing_url"):
             print(f"       {r['listing_url']}")
 
@@ -173,7 +183,7 @@ def main() -> int:
         if not group:
             warn(f"{target['label']}: 매물 0건 — 건너뜁니다.")
             continue
-        market = scoring.fit_market(group, key, target["label"])
+        market = scoring.fit_baseline(group, key, target["label"])
         for r in group:
             scoring.score_row(r, market, target)
         models.append((market, group))

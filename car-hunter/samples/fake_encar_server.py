@@ -70,8 +70,24 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_html(self, body: str):
+        raw = body.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html;charset=UTF-8")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
     def do_GET(self):
         u = urlparse(self.path)
+
+        if u.path == "/md/sl/mdsl_regcar.do":
+            import os as _os
+            here = _os.path.dirname(_os.path.abspath(__file__))
+            with open(_os.path.join(here, "mock_inspection_page.html"),
+                      encoding="utf-8") as f:
+                return self._send_html(f.read())
+
         qs = parse_qs(u.query)
 
         # --- 검색 ---

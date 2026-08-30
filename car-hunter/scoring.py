@@ -43,6 +43,9 @@ class MarketModel:
     price_min: float = 0.0
     price_max: float = 0.0
     low_confidence: bool = True
+    basis: str = "전체"            # "무사고" | "전체"
+    n_clean: int = 0               # 무사고 표본 수
+    accident_scale: float = 1.0    # 사고 할인에 곱할 비율
 
     def predict(self, age: float | None, km: int | None) -> float | None:
         if self.method == "median":
@@ -235,6 +238,8 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
         acc_amt = rank_amt + cost_amt
     else:
         acc_amt = max(rank_amt, cost_amt)
+    # 전체 매물 기준선을 쓰면 그 선에 이미 사고 영향이 섞여 있으므로 낮춘다
+    acc_amt *= getattr(market, "accident_scale", 1.0)
 
     if acc_amt >= 1:
         bits = []
@@ -292,10 +297,73 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
         out["breakdown"].append(("현재 리스·렌트 매물", -round(amt, 0)))
         fair -= amt
 
+    # 6) 고전원전기장치 불량 — 전기차 핵심 안전 항목
+    ev_bad = [x for x in str(row.get("page_ev_hv_bad") or "").split(", ") if x]
+    if ev_bad:
+        amt = P["ev_hv_bad_manwon"] * len(ev_bad)
+        out["breakdown"].append((f"고전원전기장치 불량 ({', '.join(ev_bad)})",
+                                 round(amt, 0)))
+        fair += amt
+    elif to_int(row.get("page_ev_hv_checked")):
+        pass   # 3항목 모두 양호 — 조정 없음
+    else:
+        out["unknowns"].append("고전원전기장치 점검 결과 없음 (전기차 핵심 항목)")
+
+    # 7) 자동차 세부상태 불량
+    det_bad = [x for x in str(row.get("page_detail_bad") or "").split(", ") if x]
+    if det_bad:
+        amt = P["detail_bad_manwon"] * len(det_bad)
+        out["breakdown"].append((f"세부상태 불량 ({', '.join(det_bad)})", round(amt, 0)))
+        fair += amt
+
     out["breakdown"].append(("= 적정가", round(fair, 0)))
     out["fair_price_manwon"] = round(fair, 0)
     out["value_gap_manwon"] = round(fair - price, 0)
     return out
+
+
+def _is_accident_free(r: dict) -> bool:
+    """보험이력으로 '확인된' 무사고만 True. 모르면 False."""
+    if str(r.get("record_available", "")).strip().lower() not in ("true", "1", "y"):
+        return False
+    my = to_int(r.get("accident_my_count"))
+    ot = to_int(r.get("accident_other_count"))
+    if my is None and ot is None:
+        return False
+    return not ((my or 0) or (ot or 0))
+
+
+def fit_baseline(rows: list[dict], key: str, label: str) -> MarketModel:
+    """기준 시세선을 그린다.
+
+    전체 매물로 그린 선에는 사고차의 가격 하락이 이미 섞여 있다. 거기서
+    사고 할인을 또 빼면 같은 흠결을 두 번 반영하게 된다. 무사고 매물만으로
+    그리면 '무사고 기준선' 이 되어 사고 할인을 온전히 빼도 된다.
+
+    표본이 모자라면 전체 기준선을 쓰되 사고 할인 계수를 낮춘다.
+    """
+    B = config.BASELINE
+    clean = [r for r in rows if _is_accident_free(r)]
+    m_all = fit_market(rows, key, label)
+    m_clean = fit_market(clean, key, label) if clean else None
+
+    mode = B.get("mode", "auto")
+    enough = (m_clean is not None and m_clean.method == "regression"
+              and m_clean.n >= B.get("min_clean_samples", 8))
+
+    use_clean = (mode == "accident_free" and m_clean is not None) or \
+                (mode == "auto" and enough)
+
+    if use_clean:
+        m = m_clean
+        m.basis = "무사고"
+        m.accident_scale = B.get("accident_scale_when_clean", 1.0)
+    else:
+        m = m_all
+        m.basis = "전체"
+        m.accident_scale = B.get("accident_scale_when_all", 0.6)
+    m.n_clean = len(clean)
+    return m
 
 
 def score_row(row: dict, market: MarketModel, target: dict) -> dict:
@@ -364,7 +432,10 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
     # 계기판은 되감지 않는 한 늘기만 한다. 성능점검은 매물 등록보다 앞서므로
     # 성능점검 km 가 표시 km 보다 크면 조작을 의심해야 한다.
     M = getattr(config, "MILEAGE_ROLLBACK", {})
-    insp_km = to_int(row.get("insp_mileage"))
+    # 성능기록부 페이지의 주행거리를 우선한다 (API 보다 정확)
+    insp_km = to_int(row.get("page_mileage"))
+    if insp_km is None:
+        insp_km = to_int(row.get("insp_mileage"))
     shown_km = to_int(row.get("mileage_km"))
     row["mileage_gap_km"] = ""
     rollback_pen = 0.0
@@ -474,6 +545,8 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
                 bits.append(f"{lab} {n}회")
         minus.append("과거 용도 이력: " + (", ".join(bits) or "있음"))
     excluded_reasons = []
+    if str(row.get("page_mileage_gauge") or "") == "불량":
+        excluded_reasons.append("주행거리 계기상태 불량 (성능기록부)")
     gap = to_int(row.get("mileage_gap_km"))
     if gap is not None and gap > M.get("exclude_over_km", 5000):
         excluded_reasons.append(f"주행거리 불일치 {gap:,}km")

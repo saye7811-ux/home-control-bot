@@ -1,4 +1,7 @@
 requests>=2.31
 numpy>=1.24
+# 성능기록부 HTML 페이지 파싱용
+beautifulsoup4>=4.12
+lxml>=5.0
 # 아래는 선택 사항 — 모의 스크린샷 생성기(samples/make_mock_screenshots.py)에만 필요
 # pillow>=10.0

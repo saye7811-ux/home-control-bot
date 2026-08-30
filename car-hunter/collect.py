@@ -44,19 +44,22 @@ LISTING_FIELDS = [
     "insp_repair_notes", "insp_repair_penalty", "insp_worst_rank",
     "insp_worst_status",
     "insp_unclassified", "insp_diagnostics", "battery_pack_damage",
-    "repair_source", "comment_accident_amount",
+    "repair_source",
     "insp_mileage", "insp_waterlog", "insp_recall", "insp_recall_types",
     "insp_comments", "insp_tuning", "insp_usage_change", "insp_serious",
     "insp_vin", "insp_accident_flag", "insp_simple_repair", "insp_needs_repair",
     "accident_lines", "accident_type_verdict",
     "use_history", "record_fields_null",
     "first_registration_date",
-    "opt_sunroof", "opt_audio", "opt_hud", "opt_rwsteer",
     "flood_or_total_loss", "rental_or_commercial", "one_owner",
     "encar_diagnosed", "encar_check", "direct_inspected",
-    "seller_airsus_mention", "airsus_status", "airsus_keyword_hits",
-    "options_count", "options", "option_codes", "option_codes_unresolved",
-    "option_source",
+    "page_available", "repair_grade_source", "page_repair_notes",
+    "page_repair_penalty", "page_worst_rank", "page_worst_status",
+    "page_unmatched_parts", "page_mileage_gauge", "page_mileage",
+    "page_vin_state", "page_tuning", "page_special_history", "page_usage_change",
+    "page_recall", "page_recall_done", "page_accident_history", "page_simple_repair",
+    "page_first_registration", "page_inspection_valid", "page_inspector_note",
+    "page_detail_bad", "page_ev_hv_bad", "page_ev_hv_checked", "page_parse_note",
     "origin_price_manwon", "warranty", "view_count", "subscribe_count",
     "inspection_summary", "photo_url", "listing_url",
     "detail_fetched", "collected_at",
@@ -630,88 +633,75 @@ def cmd_probe(args) -> int:
         print("      Network 필터 칸에 inspect / performance / record / diagnosis 를")
         print("      쳐 보면 후보가 줄어듭니다.")
 
-    # ---------------- 10. 옵션 배열 위치 찾기 ----------------
-    print("\n[10] 옵션 배열 탐색  (에어서스 판별의 핵심)")
-    arrays = api.find_arrays(detail)
-    if not arrays:
-        warn("상세 응답에 배열이 하나도 없습니다.")
+    # ---------------- 10. 성능기록부 HTML 페이지 (주 소스) ----------------
+    print("\n[10] 성능기록부 HTML 페이지")
+    page_url = config.INSPECTION_PAGE_URL.format(vid=vid)
+    print(f"    {page_url}")
+    page_html = client.inspection_page(vid)
+    if not page_html:
+        warn("성능기록부 페이지를 못 받았습니다.")
     else:
-        print(f"    상세 응답 안의 배열 {len(arrays)}개:")
-        for a in arrays:
-            kinds = "/".join(a["kinds"]) or "빈배열"
-            sample = repr(a["sample"])[:90]
-            tag = ""
-            if api.looks_like_option_names(a["sample"]):
-                tag = "   <== 옵션명 배열로 보임"
-            elif api.looks_like_code_map(a["sample"]):
-                tag = "   <== 코드→이름 변환표로 보임"
-            elif api.looks_like_option_codes(a["sample"]):
-                tag = "   <== 옵션 코드 배열로 보임 (이름 없음)"
-            print(f"      {a['path']:38} len={a['len']:<4} [{kinds}] {sample}{tag}")
+        raw_page = os.path.join(os.path.dirname(DETAILS_JSON), "raw_inspection_page.html")
+        with open(raw_page, "w", encoding="utf-8") as f:
+            f.write(page_html)
+        print(f"    원본 저장 -> {raw_page} ({len(page_html):,} bytes)")
 
-    found_map: dict[str, str] = {}
-    names, codes, src = api.extract_options(detail)
-    print(f"\n    추출된 옵션명 {len(names)}개 (출처: {src})")
-    if names:
-        print(f"      {', '.join(names[:25])}")
-    if codes:
-        print(f"    추출된 옵션 코드 {len(codes)}개: {', '.join(codes[:30])}")
+        parsed = api.parse_inspection_page(page_html)
+        print(f"\n    -- 수리 부위 {len(parsed['repairs'])}건 --")
+        for r in parsed["repairs"]:
+            print(f"      {r['raw'][:26]:28} [{r['status']}] -> "
+                  f"{r['part']} / {r['rank']}")
+        if not parsed["repairs"]:
+            print("      (수리 부위 없음)")
+        if parsed["unmatched_parts"]:
+            warn(f"못 알아본 부위 표기: {parsed['unmatched_parts']}")
+            print("      부위명이면 알려주세요. config 의 부위표에 넣겠습니다.")
 
-    if not names and codes:
-        warn("옵션이 '이름' 없이 '코드' 로만 옵니다. 코드→이름 변환표가 필요합니다.")
-        print("\n    코드 변환표가 있을 만한 경로를 시험합니다:")
-        for label, url, params in api.option_map_candidates(vid):
-            # 후보 경로 하나가 죽어도 진단 전체를 날리지 않는다.
-            try:
-                code_o, payload_o, snip_o, _ = client.raw_get(url, params, stage=f"opt:{label}")
-            except api.EncarUnreachable as e:
-                print(f"      {label:20} 연결실패   ({str(e.detail)[:60]})")
-                continue
-            except RuntimeError as e:
-                print(f"      {label:20} 실패       ({str(e)[:60]})")
-                continue
-            hit = ""
-            if payload_o is not None:
-                cmap = api.build_code_map(payload_o)
-                if cmap:
-                    resolved = [cmap[c] for c in codes if c in cmap]
-                    found_map = cmap
-                    hit = (f"  <== 코드→이름 변환표 {len(cmap)}개 발견! "
-                           f"이 매물 코드 {len(resolved)}/{len(codes)}건 해석됨")
-                else:
-                    n2, _c2, s2 = (api.extract_options(payload_o)
-                                   if isinstance(payload_o, dict) else ([], [], ""))
-                    arrs = api.find_arrays(payload_o)
-                    named = [a for a in arrs if api.looks_like_option_names(a["sample"])]
-                    if n2:
-                        hit = f"  <== 옵션명 {len(n2)}개 발견! (출처 {s2})"
-                    elif named:
-                        hit = (f"  <== 이름 배열 후보: {named[0]['path']} "
-                               f"{repr(named[0]['sample'])[:60]}")
-            print(f"      {label:20} {_status(code_o):10}{hit}")
-            if found_map:
-                names2 = [found_map[c] for c in codes if c in found_map]
-                print(f"         -> 이 매물 옵션: {', '.join(names2[:20]) or '(해석 실패)'}")
-                break
+        print("\n    -- 라벨 항목 --")
+        for k, v in parsed["fields"].items():
+            print(f"      {k:22}= {v}")
+        missing = [k for k, _ in config.INSPECTION_PAGE_FIELDS
+                   if k not in parsed["fields"]]
+        if missing:
+            warn(f"페이지에서 못 읽은 항목: {missing}")
 
-        if not found_map:
-            print("\n    변환표를 찾지 못했습니다. data/raw_detail.json 을 "
-                  "저장해 두었으니 알려주세요.")
+        print(f"\n    -- 고전원전기장치 (전기차 핵심) --")
+        if not parsed["ev_hv"]:
+            warn("고전원전기장치 3항목을 못 읽었습니다.")
+        for k, v in parsed["ev_hv"].items():
+            flag = "  <== 불량" if v["state"] == "불량" else ""
+            print(f"      {k:22}= {v['raw']}{flag}")
+
+        print(f"\n    -- 자동차 세부상태 불량 --")
+        print(f"      {parsed['detail_bad'] or '(없음)'}")
+
+        np_ = api.normalize_inspection_page(parsed)
+        print(f"\n    -- 등급 채점 --")
+        for note in (np_["page_repair_notes"] or "").split(" | "):
+            if note:
+                print(f"      {note}")
+        print(f"      감점(등급): {np_['page_repair_penalty']} / "
+              f"최악 {np_['page_worst_rank'] or '-'}")
+        print(f"      주행거리 계기상태: {np_['page_mileage_gauge'] or '(못 읽음)'}")
+        if np_["page_mileage"] is not None:
+            shown = norm.get("mileage_km") or 0
+            print(f"      성능점검 주행거리 {np_['page_mileage']:,}km vs "
+                  f"매물 표시 {shown:,}km -> 격차 {np_['page_mileage']-shown:,}km")
 
     nd = api.normalize_detail(vid, detail, got.get("사고이력(record)"),
                               got.get("성능점검(inspection)"),
                               got.get("엔카진단(diagnosis)"), target,
-                              code_map=found_map or None)
+                              inspection_html=page_html)
     print(f"\n[11] 최종 파싱 결과")
-    for k in ("plate_no", "options_count", "option_source", "airsus_status",
-              "airsus_keyword_hits", "accident_free", "encar_diagnosed",
-              "encar_check", "direct_inspected", "origin_price_manwon",
-              "warranty", "view_count", "subscribe_count"):
+    for k in ("plate_no", "repair_grade_source", "insp_worst_rank",
+              "insp_worst_status", "insp_repair_penalty", "page_mileage_gauge",
+              "page_ev_hv_bad", "page_detail_bad", "first_registration_date",
+              "accident_free", "encar_diagnosed", "encar_check",
+              "origin_price_manwon", "warranty", "view_count", "subscribe_count"):
         v = nd.get(k)
         print(f"    {k:22}= {v!r}")
-    if nd.get("airsus_status", "").startswith("판별불가"):
-        warn("에어서스 판별이 불가능한 상태입니다. 이 프로젝트의 핵심 지표이므로 "
-             "[10] 출력을 알려주시면 파서를 맞추겠습니다.")
+    if not nd.get("page_available"):
+        warn("성능기록부 페이지를 못 읽었습니다. 부위 등급 판정이 불가능합니다.")
 
     print("\n" + "=" * 74)
     print(" 진단 끝. '<--' 표시나 경고가 있으면 그 줄을 그대로 복사해서 알려주세요.")
@@ -865,11 +855,6 @@ def collect_target(client, target: dict, limit: int, with_detail: bool,
     rows: list[dict] = []
     seen: set[str] = set()
 
-    # 옵션이 코드로 오는 경우를 대비해 변환표를 1회만 받아 둔다
-    code_map = client.option_code_map()
-    if code_map:
-        log(f"  옵션 코드 변환표 {len(code_map)}개 확보")
-
     for ep_name in config.USE_ENDPOINTS:
         if len(rows) >= limit:
             break
@@ -952,21 +937,27 @@ def collect_target(client, target: dict, limit: int, with_detail: bool,
         record = client.record(vid)
         inspection = client.inspection(vid)
         diagnosis = client.diagnosis(vid)
+        page_html = client.inspection_page(vid)
 
         bucket = details_sink.setdefault(vid, {})
         bucket.update({"detail": detail, "record": record,
-                       "inspection": inspection, "diagnosis": diagnosis})
+                       "inspection": inspection, "diagnosis": diagnosis,
+                       "inspection_html": page_html})
 
         listing.update(api.normalize_detail(vid, detail, record, inspection,
-                                            diagnosis, target, code_map=code_map))
+                                            diagnosis, target,
+                                            inspection_html=page_html))
         listing["detail_fetched"] = True
         listing["collected_at"] = datetime.now().isoformat(timespec="seconds")
 
     detailed = [r for r in rows if r.get("detail_fetched")]
-    mentioned = sum(1 for r in detailed if r.get("seller_airsus_mention"))
+    got_page = sum(1 for r in detailed if r.get("page_available"))
     if detailed:
-        log(f"  에어서스: 판매자 설명 언급 {mentioned}/{len(detailed)}건 "
-            f"(참고용 — 점수 미반영, 헤이딜러로 확인)")
+        log(f"  성능기록부 페이지 확보 {got_page}/{len(detailed)}건")
+        unmatched = sorted({x for r in detailed
+                            for x in str(r.get("page_unmatched_parts") or "").split(", ") if x})
+        if unmatched:
+            warn(f"성능기록부에서 못 알아본 부위 표기: {unmatched[:12]}")
 
     missing_plate = [r["vehicle_id"] for r in detailed if not r.get("plate_no")]
     if missing_plate:
@@ -1118,13 +1109,6 @@ def cmd_reparse(args) -> int:
 
     prev = {str(r.get("vehicle_id")): r for r in read_csv(LISTINGS_CSV)}
     targets = {t["key"]: t for t in config.TARGETS}
-    code_map = api.load_local_option_map()
-    if code_map:
-        log(f"옵션 코드 변환표 {len(code_map)}개 적용")
-    else:
-        warn("옵션 코드 변환표가 없습니다 (data/option_codes.json). "
-             "`python infer_options.py` 로 만들 수 있습니다.")
-
     rows = []
     for vid, bucket in details.items():
         if not isinstance(bucket, dict):
@@ -1141,7 +1125,7 @@ def cmd_reparse(args) -> int:
             listing.update(api.normalize_detail(
                 str(vid), bucket.get("detail"), bucket.get("record"),
                 bucket.get("inspection"), bucket.get("diagnosis"),
-                target, code_map=code_map))
+                target, inspection_html=bucket.get("inspection_html")))
             listing["detail_fetched"] = True
         else:
             listing["detail_fetched"] = old.get("detail_fetched", False)
@@ -1153,10 +1137,9 @@ def cmd_reparse(args) -> int:
     log(f"재해석 완료: {LISTINGS_CSV} ({len(rows)}건)")
 
     detailed = [r for r in rows if r.get("detail_fetched")]
-    mentioned = sum(1 for r in detailed if r.get("seller_airsus_mention"))
-    print(f"\n  상세 확보 {len(detailed)}건 중")
-    print(f"    판매자 설명에 에어서스 언급: {mentioned}건 (참고용, 점수 미반영)")
-    print("    에어서스 실제 장착 여부는 헤이딜러 숨은이력에서 확정합니다.")
+    got_page = sum(1 for r in detailed if r.get("page_available"))
+    print(f"\n  상세 확보 {len(detailed)}건 / 성능기록부 페이지 {got_page}건")
+    print("    에어서스·후륜조향은 헤이딜러 숨은이력에서 확정합니다.")
     return 0
 
 
@@ -1180,7 +1163,8 @@ def cmd_fixture(args) -> int:
             details[vid] = raw
             listing.update(api.normalize_detail(
                 vid, raw.get("detail"), raw.get("record"),
-                raw.get("inspection"), raw.get("diagnosis"), target))
+                raw.get("inspection"), raw.get("diagnosis"), target,
+                inspection_html=raw.get("inspection_html")))
             listing["collected_at"] = datetime.now().isoformat(timespec="seconds")
             all_rows.append(listing)
 

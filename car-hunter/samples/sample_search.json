@@ -79,7 +79,8 @@
    "diagnosis": {
     "diagnosisYn": "Y",
     "grade": "A"
-   }
+   },
+   "inspection_html": "<html><head><meta charset=\"utf-8\"><title>성능·상태점검기록부</title></head><body>\n<h2>중고자동차 성능·상태점검기록부</h2>\n<table><tbody>\n<tr><th>차명</th><td>BMW iX xDrive50</td><th>최초등록일</th><td>2022-03-15</td></tr>\n<tr><th>차대번호 표기</th><td>양호</td><th>검사유효기간</th><td>2026-03-14</td></tr>\n<tr><th>주행거리</th><td>78,120 km</td><th>주행거리 계기상태</th><td>양호</td></tr>\n<tr><th>튜닝</th><td>없음</td><th>특별이력</th><td>없음</td></tr>\n<tr><th>용도변경</th><td>없음</td><th>리콜대상</th><td>해당</td></tr>\n<tr><th>이행여부</th><td>이행</td><th>사고이력</th><td>있음</td></tr>\n<tr><th>단순수리</th><td>없음</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>사고이력 (수리 부위)</h3>\n<table><tbody>\n<tr><th>외판부위 1랭크</th><td>프론트 휀더(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>외판부위 1랭크</th><td>프론트 도어(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>주요골격 B랭크</th><td>필러 패널 A(우)</td><td>ⓦ</td><td>판금/용접</td></tr>\n<tr><th>외판부위 2랭크</th><td>쿼터 패널(좌)</td><td>ⓐ</td><td>흠집</td></tr>\n</tbody></table>\n\n<h3>자동차 세부상태</h3>\n<table><tbody>\n<tr><th>원동기</th><td>양호</td><th>누유</th><td>양호</td></tr>\n<tr><th>냉각수누수</th><td>양호</td><th>변속기</th><td>양호</td></tr>\n<tr><th>동력전달</th><td>양호</td><th>조향</th><td>불량</td></tr>\n<tr><th>제동</th><td>양호</td><th>전기</th><td>양호</td></tr>\n<tr><th>연료누출</th><td>양호</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>고전원전기장치</h3>\n<table><tbody>\n<tr><th>충전구 절연 상태</th><td>양호</td></tr>\n<tr><th>구동축전지 격리 상태</th><td>양호</td></tr>\n<tr><th>고전원전기배선 상태</th><td>불량</td></tr>\n</tbody></table>\n\n<h3>특기사항 및 점검자 의견</h3>\n<table><tbody>\n<tr><th>특기사항</th><td>우측 전면 충돌 흔적. 필러 판금 확인됨.</td></tr>\n</tbody></table>\n</body></html>\n"
   },
   {
    "search": {
@@ -394,7 +395,8 @@
     "simpleRepair": "교환 1개소",
     "comment": "고전압 배터리 외관 이상 없음"
    },
-   "diagnosis": null
+   "diagnosis": null,
+   "inspection_html": "<html><head><meta charset=\"utf-8\"><title>성능·상태점검기록부</title></head><body>\n<h2>중고자동차 성능·상태점검기록부</h2>\n<table><tbody>\n<tr><th>차명</th><td>BMW iX xDrive50</td><th>최초등록일</th><td>2022-03-15</td></tr>\n<tr><th>차대번호 표기</th><td>양호</td><th>검사유효기간</th><td>2026-03-14</td></tr>\n<tr><th>주행거리</th><td>78,120 km</td><th>주행거리 계기상태</th><td>양호</td></tr>\n<tr><th>튜닝</th><td>없음</td><th>특별이력</th><td>없음</td></tr>\n<tr><th>용도변경</th><td>없음</td><th>리콜대상</th><td>해당</td></tr>\n<tr><th>이행여부</th><td>이행</td><th>사고이력</th><td>있음</td></tr>\n<tr><th>단순수리</th><td>없음</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>사고이력 (수리 부위)</h3>\n<table><tbody>\n<tr><th>외판부위 1랭크</th><td>프론트 휀더(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>외판부위 1랭크</th><td>프론트 도어(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>주요골격 B랭크</th><td>필러 패널 A(우)</td><td>ⓦ</td><td>판금/용접</td></tr>\n<tr><th>외판부위 2랭크</th><td>쿼터 패널(좌)</td><td>ⓐ</td><td>흠집</td></tr>\n</tbody></table>\n\n<h3>자동차 세부상태</h3>\n<table><tbody>\n<tr><th>원동기</th><td>양호</td><th>누유</th><td>양호</td></tr>\n<tr><th>냉각수누수</th><td>양호</td><th>변속기</th><td>양호</td></tr>\n<tr><th>동력전달</th><td>양호</td><th>조향</th><td>불량</td></tr>\n<tr><th>제동</th><td>양호</td><th>전기</th><td>양호</td></tr>\n<tr><th>연료누출</th><td>양호</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>고전원전기장치</h3>\n<table><tbody>\n<tr><th>충전구 절연 상태</th><td>양호</td></tr>\n<tr><th>구동축전지 격리 상태</th><td>양호</td></tr>\n<tr><th>고전원전기배선 상태</th><td>불량</td></tr>\n</tbody></table>\n\n<h3>특기사항 및 점검자 의견</h3>\n<table><tbody>\n<tr><th>특기사항</th><td>우측 전면 충돌 흔적. 필러 판금 확인됨.</td></tr>\n</tbody></table>\n</body></html>\n"
   },
   {
    "search": {
@@ -715,7 +717,8 @@
    "diagnosis": {
     "diagnosisYn": "Y",
     "grade": "A"
-   }
+   },
+   "inspection_html": "<html><head><meta charset=\"utf-8\"><title>성능·상태점검기록부</title></head><body>\n<h2>중고자동차 성능·상태점검기록부</h2>\n<table><tbody>\n<tr><th>차명</th><td>BMW iX xDrive50</td><th>최초등록일</th><td>2022-03-15</td></tr>\n<tr><th>차대번호 표기</th><td>양호</td><th>검사유효기간</th><td>2026-03-14</td></tr>\n<tr><th>주행거리</th><td>78,120 km</td><th>주행거리 계기상태</th><td>양호</td></tr>\n<tr><th>튜닝</th><td>없음</td><th>특별이력</th><td>없음</td></tr>\n<tr><th>용도변경</th><td>없음</td><th>리콜대상</th><td>해당</td></tr>\n<tr><th>이행여부</th><td>이행</td><th>사고이력</th><td>있음</td></tr>\n<tr><th>단순수리</th><td>없음</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>사고이력 (수리 부위)</h3>\n<table><tbody>\n<tr><th>외판부위 1랭크</th><td>프론트 휀더(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>외판부위 1랭크</th><td>프론트 도어(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>주요골격 B랭크</th><td>필러 패널 A(우)</td><td>ⓦ</td><td>판금/용접</td></tr>\n<tr><th>외판부위 2랭크</th><td>쿼터 패널(좌)</td><td>ⓐ</td><td>흠집</td></tr>\n</tbody></table>\n\n<h3>자동차 세부상태</h3>\n<table><tbody>\n<tr><th>원동기</th><td>양호</td><th>누유</th><td>양호</td></tr>\n<tr><th>냉각수누수</th><td>양호</td><th>변속기</th><td>양호</td></tr>\n<tr><th>동력전달</th><td>양호</td><th>조향</th><td>불량</td></tr>\n<tr><th>제동</th><td>양호</td><th>전기</th><td>양호</td></tr>\n<tr><th>연료누출</th><td>양호</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>고전원전기장치</h3>\n<table><tbody>\n<tr><th>충전구 절연 상태</th><td>양호</td></tr>\n<tr><th>구동축전지 격리 상태</th><td>양호</td></tr>\n<tr><th>고전원전기배선 상태</th><td>불량</td></tr>\n</tbody></table>\n\n<h3>특기사항 및 점검자 의견</h3>\n<table><tbody>\n<tr><th>특기사항</th><td>우측 전면 충돌 흔적. 필러 판금 확인됨.</td></tr>\n</tbody></table>\n</body></html>\n"
   },
   {
    "search": {
@@ -1043,7 +1046,8 @@
    "diagnosis": {
     "diagnosisYn": "Y",
     "grade": "A"
-   }
+   },
+   "inspection_html": "<html><head><meta charset=\"utf-8\"><title>성능·상태점검기록부</title></head><body>\n<h2>중고자동차 성능·상태점검기록부</h2>\n<table><tbody>\n<tr><th>차명</th><td>BMW iX xDrive50</td><th>최초등록일</th><td>2022-03-15</td></tr>\n<tr><th>차대번호 표기</th><td>양호</td><th>검사유효기간</th><td>2026-03-14</td></tr>\n<tr><th>주행거리</th><td>78,120 km</td><th>주행거리 계기상태</th><td>양호</td></tr>\n<tr><th>튜닝</th><td>없음</td><th>특별이력</th><td>없음</td></tr>\n<tr><th>용도변경</th><td>없음</td><th>리콜대상</th><td>해당</td></tr>\n<tr><th>이행여부</th><td>이행</td><th>사고이력</th><td>있음</td></tr>\n<tr><th>단순수리</th><td>없음</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>사고이력 (수리 부위)</h3>\n<table><tbody>\n<tr><th>외판부위 1랭크</th><td>프론트 휀더(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>외판부위 1랭크</th><td>프론트 도어(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>주요골격 B랭크</th><td>필러 패널 A(우)</td><td>ⓦ</td><td>판금/용접</td></tr>\n<tr><th>외판부위 2랭크</th><td>쿼터 패널(좌)</td><td>ⓐ</td><td>흠집</td></tr>\n</tbody></table>\n\n<h3>자동차 세부상태</h3>\n<table><tbody>\n<tr><th>원동기</th><td>양호</td><th>누유</th><td>양호</td></tr>\n<tr><th>냉각수누수</th><td>양호</td><th>변속기</th><td>양호</td></tr>\n<tr><th>동력전달</th><td>양호</td><th>조향</th><td>불량</td></tr>\n<tr><th>제동</th><td>양호</td><th>전기</th><td>양호</td></tr>\n<tr><th>연료누출</th><td>양호</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>고전원전기장치</h3>\n<table><tbody>\n<tr><th>충전구 절연 상태</th><td>양호</td></tr>\n<tr><th>구동축전지 격리 상태</th><td>양호</td></tr>\n<tr><th>고전원전기배선 상태</th><td>불량</td></tr>\n</tbody></table>\n\n<h3>특기사항 및 점검자 의견</h3>\n<table><tbody>\n<tr><th>특기사항</th><td>우측 전면 충돌 흔적. 필러 판금 확인됨.</td></tr>\n</tbody></table>\n</body></html>\n"
   },
   {
    "search": {
@@ -1366,7 +1370,8 @@
     "simpleRepair": "교환 1개소",
     "comment": "고전압 배터리 외관 이상 없음"
    },
-   "diagnosis": null
+   "diagnosis": null,
+   "inspection_html": "<html><head><meta charset=\"utf-8\"><title>성능·상태점검기록부</title></head><body>\n<h2>중고자동차 성능·상태점검기록부</h2>\n<table><tbody>\n<tr><th>차명</th><td>BMW iX xDrive50</td><th>최초등록일</th><td>2022-03-15</td></tr>\n<tr><th>차대번호 표기</th><td>양호</td><th>검사유효기간</th><td>2026-03-14</td></tr>\n<tr><th>주행거리</th><td>78,120 km</td><th>주행거리 계기상태</th><td>양호</td></tr>\n<tr><th>튜닝</th><td>없음</td><th>특별이력</th><td>없음</td></tr>\n<tr><th>용도변경</th><td>없음</td><th>리콜대상</th><td>해당</td></tr>\n<tr><th>이행여부</th><td>이행</td><th>사고이력</th><td>있음</td></tr>\n<tr><th>단순수리</th><td>없음</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>사고이력 (수리 부위)</h3>\n<table><tbody>\n<tr><th>외판부위 1랭크</th><td>프론트 휀더(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>외판부위 1랭크</th><td>프론트 도어(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>주요골격 B랭크</th><td>필러 패널 A(우)</td><td>ⓦ</td><td>판금/용접</td></tr>\n<tr><th>외판부위 2랭크</th><td>쿼터 패널(좌)</td><td>ⓐ</td><td>흠집</td></tr>\n</tbody></table>\n\n<h3>자동차 세부상태</h3>\n<table><tbody>\n<tr><th>원동기</th><td>양호</td><th>누유</th><td>양호</td></tr>\n<tr><th>냉각수누수</th><td>양호</td><th>변속기</th><td>양호</td></tr>\n<tr><th>동력전달</th><td>양호</td><th>조향</th><td>불량</td></tr>\n<tr><th>제동</th><td>양호</td><th>전기</th><td>양호</td></tr>\n<tr><th>연료누출</th><td>양호</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>고전원전기장치</h3>\n<table><tbody>\n<tr><th>충전구 절연 상태</th><td>양호</td></tr>\n<tr><th>구동축전지 격리 상태</th><td>양호</td></tr>\n<tr><th>고전원전기배선 상태</th><td>불량</td></tr>\n</tbody></table>\n\n<h3>특기사항 및 점검자 의견</h3>\n<table><tbody>\n<tr><th>특기사항</th><td>우측 전면 충돌 흔적. 필러 판금 확인됨.</td></tr>\n</tbody></table>\n</body></html>\n"
   },
   {
    "search": {
@@ -1692,7 +1697,8 @@
    "diagnosis": {
     "diagnosisYn": "Y",
     "grade": "A"
-   }
+   },
+   "inspection_html": "<html><head><meta charset=\"utf-8\"><title>성능·상태점검기록부</title></head><body>\n<h2>중고자동차 성능·상태점검기록부</h2>\n<table><tbody>\n<tr><th>차명</th><td>BMW iX xDrive50</td><th>최초등록일</th><td>2022-03-15</td></tr>\n<tr><th>차대번호 표기</th><td>양호</td><th>검사유효기간</th><td>2026-03-14</td></tr>\n<tr><th>주행거리</th><td>78,120 km</td><th>주행거리 계기상태</th><td>양호</td></tr>\n<tr><th>튜닝</th><td>없음</td><th>특별이력</th><td>없음</td></tr>\n<tr><th>용도변경</th><td>없음</td><th>리콜대상</th><td>해당</td></tr>\n<tr><th>이행여부</th><td>이행</td><th>사고이력</th><td>있음</td></tr>\n<tr><th>단순수리</th><td>없음</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>사고이력 (수리 부위)</h3>\n<table><tbody>\n<tr><th>외판부위 1랭크</th><td>프론트 휀더(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>외판부위 1랭크</th><td>프론트 도어(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>주요골격 B랭크</th><td>필러 패널 A(우)</td><td>ⓦ</td><td>판금/용접</td></tr>\n<tr><th>외판부위 2랭크</th><td>쿼터 패널(좌)</td><td>ⓐ</td><td>흠집</td></tr>\n</tbody></table>\n\n<h3>자동차 세부상태</h3>\n<table><tbody>\n<tr><th>원동기</th><td>양호</td><th>누유</th><td>양호</td></tr>\n<tr><th>냉각수누수</th><td>양호</td><th>변속기</th><td>양호</td></tr>\n<tr><th>동력전달</th><td>양호</td><th>조향</th><td>불량</td></tr>\n<tr><th>제동</th><td>양호</td><th>전기</th><td>양호</td></tr>\n<tr><th>연료누출</th><td>양호</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>고전원전기장치</h3>\n<table><tbody>\n<tr><th>충전구 절연 상태</th><td>양호</td></tr>\n<tr><th>구동축전지 격리 상태</th><td>양호</td></tr>\n<tr><th>고전원전기배선 상태</th><td>불량</td></tr>\n</tbody></table>\n\n<h3>특기사항 및 점검자 의견</h3>\n<table><tbody>\n<tr><th>특기사항</th><td>우측 전면 충돌 흔적. 필러 판금 확인됨.</td></tr>\n</tbody></table>\n</body></html>\n"
   },
   {
    "search": {
@@ -2013,7 +2019,8 @@
    "diagnosis": {
     "diagnosisYn": "Y",
     "grade": "A"
-   }
+   },
+   "inspection_html": "<html><head><meta charset=\"utf-8\"><title>성능·상태점검기록부</title></head><body>\n<h2>중고자동차 성능·상태점검기록부</h2>\n<table><tbody>\n<tr><th>차명</th><td>BMW iX xDrive50</td><th>최초등록일</th><td>2022-03-15</td></tr>\n<tr><th>차대번호 표기</th><td>양호</td><th>검사유효기간</th><td>2026-03-14</td></tr>\n<tr><th>주행거리</th><td>78,120 km</td><th>주행거리 계기상태</th><td>양호</td></tr>\n<tr><th>튜닝</th><td>없음</td><th>특별이력</th><td>없음</td></tr>\n<tr><th>용도변경</th><td>없음</td><th>리콜대상</th><td>해당</td></tr>\n<tr><th>이행여부</th><td>이행</td><th>사고이력</th><td>있음</td></tr>\n<tr><th>단순수리</th><td>없음</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>사고이력 (수리 부위)</h3>\n<table><tbody>\n<tr><th>외판부위 1랭크</th><td>프론트 휀더(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>외판부위 1랭크</th><td>프론트 도어(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>주요골격 B랭크</th><td>필러 패널 A(우)</td><td>ⓦ</td><td>판금/용접</td></tr>\n<tr><th>외판부위 2랭크</th><td>쿼터 패널(좌)</td><td>ⓐ</td><td>흠집</td></tr>\n</tbody></table>\n\n<h3>자동차 세부상태</h3>\n<table><tbody>\n<tr><th>원동기</th><td>양호</td><th>누유</th><td>양호</td></tr>\n<tr><th>냉각수누수</th><td>양호</td><th>변속기</th><td>양호</td></tr>\n<tr><th>동력전달</th><td>양호</td><th>조향</th><td>불량</td></tr>\n<tr><th>제동</th><td>양호</td><th>전기</th><td>양호</td></tr>\n<tr><th>연료누출</th><td>양호</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>고전원전기장치</h3>\n<table><tbody>\n<tr><th>충전구 절연 상태</th><td>양호</td></tr>\n<tr><th>구동축전지 격리 상태</th><td>양호</td></tr>\n<tr><th>고전원전기배선 상태</th><td>불량</td></tr>\n</tbody></table>\n\n<h3>특기사항 및 점검자 의견</h3>\n<table><tbody>\n<tr><th>특기사항</th><td>우측 전면 충돌 흔적. 필러 판금 확인됨.</td></tr>\n</tbody></table>\n</body></html>\n"
   },
   {
    "search": {
@@ -2329,7 +2336,8 @@
     "simpleRepair": "판금 1개소",
     "comment": "고전압 배터리 외관 이상 없음"
    },
-   "diagnosis": null
+   "diagnosis": null,
+   "inspection_html": "<html><head><meta charset=\"utf-8\"><title>성능·상태점검기록부</title></head><body>\n<h2>중고자동차 성능·상태점검기록부</h2>\n<table><tbody>\n<tr><th>차명</th><td>BMW iX xDrive50</td><th>최초등록일</th><td>2022-03-15</td></tr>\n<tr><th>차대번호 표기</th><td>양호</td><th>검사유효기간</th><td>2026-03-14</td></tr>\n<tr><th>주행거리</th><td>78,120 km</td><th>주행거리 계기상태</th><td>양호</td></tr>\n<tr><th>튜닝</th><td>없음</td><th>특별이력</th><td>없음</td></tr>\n<tr><th>용도변경</th><td>없음</td><th>리콜대상</th><td>해당</td></tr>\n<tr><th>이행여부</th><td>이행</td><th>사고이력</th><td>있음</td></tr>\n<tr><th>단순수리</th><td>없음</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>사고이력 (수리 부위)</h3>\n<table><tbody>\n<tr><th>외판부위 1랭크</th><td>프론트 휀더(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>외판부위 1랭크</th><td>프론트 도어(우)</td><td>ⓧ</td><td>교환</td></tr>\n<tr><th>주요골격 B랭크</th><td>필러 패널 A(우)</td><td>ⓦ</td><td>판금/용접</td></tr>\n<tr><th>외판부위 2랭크</th><td>쿼터 패널(좌)</td><td>ⓐ</td><td>흠집</td></tr>\n</tbody></table>\n\n<h3>자동차 세부상태</h3>\n<table><tbody>\n<tr><th>원동기</th><td>양호</td><th>누유</th><td>양호</td></tr>\n<tr><th>냉각수누수</th><td>양호</td><th>변속기</th><td>양호</td></tr>\n<tr><th>동력전달</th><td>양호</td><th>조향</th><td>불량</td></tr>\n<tr><th>제동</th><td>양호</td><th>전기</th><td>양호</td></tr>\n<tr><th>연료누출</th><td>양호</td><th></th><td></td></tr>\n</tbody></table>\n\n<h3>고전원전기장치</h3>\n<table><tbody>\n<tr><th>충전구 절연 상태</th><td>양호</td></tr>\n<tr><th>구동축전지 격리 상태</th><td>양호</td></tr>\n<tr><th>고전원전기배선 상태</th><td>불량</td></tr>\n</tbody></table>\n\n<h3>특기사항 및 점검자 의견</h3>\n<table><tbody>\n<tr><th>특기사항</th><td>우측 전면 충돌 흔적. 필러 판금 확인됨.</td></tr>\n</tbody></table>\n</body></html>\n"
   }
  ]
 }

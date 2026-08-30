@@ -188,19 +188,6 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
 
         # 엔카의 에어서스 언급은 딜러 코멘트라 점수에 넣지 않는다. 참고 표시만.
         ref = []
-        seller_air = str(r.get("seller_airsus_mention", "")).strip().lower() in ("true", "1")
-        if stage != "final":
-            note = ("판매자 설명에 에어서스 언급 있음" if seller_air
-                    else "판매자 설명에 에어서스 언급 없음")
-            ref.append(f'<div class="ref">※ {_e(note)} — 딜러 작성 문구라 신뢰 불가</div>')
-
-        # 주요 옵션 — 참고 표시만 (점수 미반영)
-        opt_labels = [("opt_sunroof", "파노라마"), ("opt_audio", "프리미엄 오디오"),
-                      ("opt_hud", "HUD"), ("opt_rwsteer", "후륜조향")]
-        opt_bits = [lab for key, lab in opt_labels if r.get(key)]
-        if opt_bits:
-            ref.append(f'<div class="ref">※ 옵션 언급: {_e(" · ".join(opt_bits))} '
-                       f'(점수 미반영)</div>')
 
         # 성능점검 — 있으면 표시, 없으면 없다고 표시
         insp = [r.get("insp_leak"), r.get("insp_corrosion"), r.get("insp_tire")]
@@ -213,8 +200,23 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
 
         # 무사고 표기라도 실제 수리 부위는 반드시 보여준다.
         # 외판 1랭크 교환은 법적으로 무사고로 표기되기 때문이다.
+        if r.get("page_ev_hv_bad"):
+            ref.append('<div class="ref warnref"><b>※ 고전원전기장치 불량: '
+                       + _e(r["page_ev_hv_bad"]) + ' (전기차 핵심 안전 항목)</b></div>')
+        elif to_int(r.get("page_ev_hv_checked")):
+            ref.append('<div class="ref">※ 고전원전기장치 3항목 양호</div>')
+        if r.get("page_detail_bad"):
+            ref.append('<div class="ref warnref">※ 세부상태 불량: '
+                       + _e(r["page_detail_bad"]) + '</div>')
+        if r.get("page_mileage_gauge"):
+            ref.append(f'<div class="ref">※ 주행거리 계기상태: '
+                       f'{_e(r["page_mileage_gauge"])}</div>')
+        if r.get("page_unmatched_parts"):
+            ref.append('<div class="ref warnref">※ 성능기록부에서 못 알아본 부위: '
+                       + _e(r["page_unmatched_parts"]) + '</div>')
+
         if r.get("insp_repair_notes"):
-            src = r.get("repair_source") or "점검자 코멘트"
+            src = r.get("repair_grade_source") or r.get("repair_source") or "점검자 코멘트"
             ref.append(f'<div class="ref">※ 수리 부위({_e(src)}): '
                        + _e(str(r["insp_repair_notes"]).replace(" | ", " · "))[:320]
                        + '</div>')

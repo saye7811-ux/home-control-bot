@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Iterable
 
@@ -368,6 +369,35 @@ class EncarClient:
         except Exception as e:
             warn(f"옵션 코드 변환표를 못 받았습니다: {e}")
         return self._code_map
+
+    def inspection_page(self, vid: str) -> str | None:
+        """성능기록부 HTML 페이지를 가져온다. JSON 이 아니므로 별도 처리."""
+        import config as _cfg
+        url = _cfg.INSPECTION_PAGE_URL.format(vid=vid)
+        self._throttle()
+        try:
+            r = self.s.get(url, timeout=self.timeout,
+                           headers={"Accept": "text/html,application/xhtml+xml"})
+        except requests.RequestException as e:
+            if _is_unreachable(e):
+                raise EncarUnreachable(
+                    f"inspection_page:{vid}",
+                    "엔카 서버에 연결하지 못했습니다 (프록시/방화벽/DNS).\n"
+                    f"  원인: {e.__class__.__name__}: {str(e)[:200]}") from e
+            warn(f"성능기록부 페이지 조회 실패({vid}): {e}")
+            return None
+
+        if r.status_code in (401, 403, 405, 429):
+            raise EncarBlocked(f"inspection_page:{vid}",
+                               "차단으로 보이는 응답입니다.", r.status_code)
+        if r.status_code != 200:
+            return None
+        body = r.text or ""
+        if any(mk in body[:4000].lower() for mk in BLOCK_MARKERS):
+            raise EncarBlocked(f"inspection_page:{vid}",
+                               "응답 본문에 캡차/차단 문구가 감지되었습니다.",
+                               r.status_code)
+        return body
 
     def raw_get(self, url: str, params: dict | None = None, stage: str = "probe"):
         """probe 전용: 상태코드를 예외 없이 그대로 돌려준다.
@@ -883,6 +913,262 @@ def describe_accidents(rec: dict) -> tuple[list[str], str]:
 
 
 # ---------------------------------------------------------------------------
+# 성능기록부 HTML 페이지 파서 (주 소스)
+# ---------------------------------------------------------------------------
+def resolve_part(name: str) -> tuple[str | None, str | None]:
+    """부위 표기 -> (표준 부위명, 랭크). 못 알아보면 (None, None).
+
+    페이지는 '프론트 휀더(우)', '필러 패널 A(우)' 처럼 띄어쓰기와 좌우
+    표기가 섞인 이름을 준다. 공백을 지우고 긴 이름부터 맞춰 본다.
+    """
+    import config as _cfg
+    flat = re.sub(r"[\s()（）\[\]]", "", name or "")
+    flat = re.sub(r"[좌우전후상하]$", "", flat)
+    if not flat:
+        return None, None
+
+    # 1) 등급표의 표준 부위명
+    for part, rank in _rank_table():
+        if part.replace(" ", "") in flat:
+            return part, rank
+    # 2) 구어체/표기 변형 별칭
+    for alias, canon in _alias_table():
+        if alias.replace(" ", "") in flat:
+            return canon, classify_part(canon)
+    return None, None
+
+
+def _norm_state(text: str) -> str | None:
+    """'양호' / '불량' 판정. 판단 못 하면 None."""
+    import config as _cfg
+    t = (text or "").strip()
+    if not t:
+        return None
+    for w in _cfg.BAD_STATE_WORDS:
+        if w in t:
+            return "불량"
+    for w in _cfg.GOOD_STATE_WORDS:
+        if w in t:
+            return "양호"
+    return None
+
+
+def _cells(soup) -> list[list[str]]:
+    """표의 행별 셀 텍스트. 표가 아니면 빈 목록."""
+    rows = []
+    for tr in soup.find_all("tr"):
+        cells = [c.get_text(" ", strip=True) for c in tr.find_all(["td", "th"])]
+        cells = [c for c in cells if c]
+        if cells:
+            rows.append(cells)
+    return rows
+
+
+# 상태 부호 옆에 붙어 나오는 말들. 맨 글자 표기를 받아들일 근거가 된다.
+STATUS_HINT_WORDS = ("교환", "판금", "용접", "부식", "흠집", "요철", "손상", "상태")
+
+
+def _symbols_in(text: str) -> list[str]:
+    """텍스트 안의 상태 부호를 표준 코드로.
+
+    동그라미 기호(ⓧ ⓦ ...)를 우선한다. 맨 글자 X/W/C/A/U/T 는 부위 이름의
+    일부일 수 있어서(예: '필러 패널 A(우)' 의 A) 제한적으로만 받는다.
+    """
+    import config as _cfg
+    out = [_cfg.INSPECTION_SYMBOLS[ch] for ch in text
+           if ch in _cfg.INSPECTION_SYMBOLS]
+    if out:
+        return list(dict.fromkeys(out))
+
+    # 동그라미가 하나도 없을 때만 맨 글자를 본다.
+    # 그것도 상태를 뜻하는 낱말이 같이 있거나, 셀 자체가 부호 한 글자일 때만.
+    stripped = text.strip()
+    has_hint = any(w in text for w in STATUS_HINT_WORDS)
+    if not has_hint and len(stripped) > 3:
+        return []
+    for m in re.finditer(r"(?<![A-Za-z가-힣])([XWCAUT])(?![A-Za-z가-힣(])", text):
+        out.append(m.group(1))
+    return list(dict.fromkeys(out))
+
+
+def parse_inspection_page(html_text: str) -> dict:
+    """성능기록부 HTML 을 구조화한다.
+
+    마크업 구조를 모르므로 CSS 선택자에 의존하지 않는다. 표의 셀 텍스트와
+    라벨 문구를 기준으로 읽고, 표가 없으면 전체 텍스트에서 다시 찾는다.
+    """
+    import config as _cfg
+    from bs4 import BeautifulSoup
+
+    out: dict[str, Any] = {
+        "page_available": False, "repairs": [], "unmatched_parts": [],
+        "detail_bad": [], "ev_hv": {}, "ev_hv_bad": [], "fields": {},
+        "parse_note": "",
+    }
+    if not html_text or not html_text.strip():
+        out["parse_note"] = "페이지 내용이 비어 있습니다"
+        return out
+
+    try:
+        soup = BeautifulSoup(html_text, "lxml")
+    except Exception:
+        soup = BeautifulSoup(html_text, "html.parser")
+
+    text = soup.get_text("\n", strip=True)
+    out["page_available"] = bool(text)
+    rows = _cells(soup)
+
+    # --- 1) 수리 부위: 셀에 부위명, 같은 행에 상태 부호 ---
+    seen: set[tuple[str, str, str]] = set()
+    for cells in rows:
+        joined = " ".join(cells)
+        syms = _symbols_in(joined)
+        if not syms:
+            continue
+        for cell in cells:
+            canon, rank = resolve_part(cell)
+            if not canon:
+                continue
+            pos = ""
+            m = re.search(r"[(（]\s*([좌우전후])\s*[)）]", cell)
+            if m:
+                pos = m.group(1)
+            for sym in syms:
+                key = (canon, sym, pos)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out["repairs"].append({
+                    "part": canon, "raw": cell.strip(), "position": pos,
+                    "status": sym, "rank": rank,
+                })
+
+    # 표에서 못 찾았으면 줄 단위 텍스트로 한 번 더
+    if not out["repairs"]:
+        for line in text.split("\n"):
+            syms = _symbols_in(line)
+            if not syms:
+                continue
+            canon, rank = resolve_part(line)
+            if not canon:
+                continue
+            for sym in syms:
+                key = (canon, sym, "")
+                if key not in seen:
+                    seen.add(key)
+                    out["repairs"].append({
+                        "part": canon, "raw": line.strip()[:60],
+                        "position": "", "status": sym, "rank": rank,
+                    })
+        if out["repairs"]:
+            out["parse_note"] = "표 대신 텍스트 줄에서 부위를 읽었습니다"
+
+    # 부호는 있는데 부위를 못 알아본 줄 — 표기 변형을 늘리기 위한 보고
+    for cells in rows:
+        joined = " ".join(cells)
+        if not _symbols_in(joined):
+            continue
+        if any(resolve_part(c)[0] for c in cells):
+            continue
+        cand = [c for c in cells if 2 <= len(c) <= 20 and not _symbols_in(c)]
+        out["unmatched_parts"].extend(cand[:2])
+    out["unmatched_parts"] = list(dict.fromkeys(out["unmatched_parts"]))[:20]
+
+    # --- 2) 라벨/값 항목 ---
+    def _value_for(labels: list[str]) -> str | None:
+        for cells in rows:
+            for i, c in enumerate(cells):
+                cf = c.replace(" ", "")
+                if not any(lb.replace(" ", "") in cf for lb in labels):
+                    continue
+                for nxt in cells[i + 1:]:
+                    if nxt.strip():
+                        return nxt.strip()
+        for lb in labels:
+            m = re.search(re.escape(lb) + r"\s*[:：]?\s*([^\n]{1,40})", text)
+            if m:
+                return m.group(1).strip()
+        return None
+
+    for key, labels in _cfg.INSPECTION_PAGE_FIELDS:
+        v = _value_for(labels)
+        if v:
+            out["fields"][key] = v
+
+    # --- 3) 자동차 세부상태: 불량 항목 수집 ---
+    seen_detail: set[str] = set()
+    for item in _cfg.INSPECTION_DETAIL_ITEMS:
+        key = item.replace(" ", "")
+        if key in seen_detail:
+            continue
+        v = _value_for([item])
+        if not v:
+            continue
+        seen_detail.add(key)
+        if _norm_state(v) == "불량":
+            out["detail_bad"].append(f"{item}({v})")
+
+    # --- 4) 고전원전기장치 (전기차 전용) ---
+    # 정규 항목명 기준으로 한 번만 센다. 표기 변형을 각각 세면 불량 1건이
+    # 여러 건으로 잡혀 감점이 배로 튄다.
+    for canonical, aliases in _cfg.EV_HV_ITEMS.items():
+        v = _value_for(list(aliases))
+        if not v:
+            continue
+        st = _norm_state(v)
+        out["ev_hv"][canonical] = {"raw": v, "state": st}
+        if st == "불량":
+            out["ev_hv_bad"].append(f"{canonical}({v})")
+
+    return out
+
+
+def normalize_inspection_page(parsed: dict) -> dict:
+    """파싱 결과를 수집 컬럼으로 평탄화하고 등급 감점을 계산한다."""
+    f = parsed.get("fields", {})
+    repairs = parsed.get("repairs", [])
+    res = score_repairs([{"part": r["part"], "status": r["status"]} for r in repairs])
+
+    notes = []
+    for r in repairs:
+        g = next((x for x in res["entries"] if x["part"] == r["part"]
+                  and x["status"] == r["status"]), None)
+        if not g:
+            continue
+        pos = f"({r['position']})" if r["position"] else ""
+        notes.append(f"{r['part']}{pos} {g['status_label']}({r['status']}) — "
+                     f"{g['rank_label']}, {g['desc']}")
+
+    gauge = _norm_state(f.get("mileage_gauge_state", "")) if f.get("mileage_gauge_state") else None
+
+    return {
+        "page_available": parsed.get("page_available", False),
+        "page_repair_notes": " | ".join(dict.fromkeys(notes)),
+        "page_repair_penalty": res["penalty"] if repairs else "",
+        "page_worst_rank": res["worst_rank"] or "",
+        "page_worst_status": res.get("worst_status") or "",
+        "page_unmatched_parts": ", ".join(parsed.get("unmatched_parts", [])),
+        "page_mileage_gauge": gauge or (f.get("mileage_gauge_state") or ""),
+        "page_mileage": to_int(f.get("page_mileage")),
+        "page_vin_state": f.get("vin_state", ""),
+        "page_tuning": f.get("tuning", ""),
+        "page_special_history": f.get("special_history", ""),
+        "page_usage_change": f.get("usage_change", ""),
+        "page_recall": f.get("recall", ""),
+        "page_recall_done": f.get("recall_done", ""),
+        "page_accident_history": f.get("accident_history", ""),
+        "page_simple_repair": f.get("simple_repair", ""),
+        "page_first_registration": f.get("first_registration", ""),
+        "page_inspection_valid": f.get("inspection_valid", ""),
+        "page_inspector_note": (f.get("inspector_note", "") or "")[:400],
+        "page_detail_bad": ", ".join(parsed.get("detail_bad", [])),
+        "page_ev_hv_bad": ", ".join(parsed.get("ev_hv_bad", [])),
+        "page_ev_hv_checked": len(parsed.get("ev_hv", {})),
+        "page_parse_note": parsed.get("parse_note", ""),
+    }
+
+
+# ---------------------------------------------------------------------------
 # 점검자 코멘트에서 수리 부위 뽑기
 # ---------------------------------------------------------------------------
 def _alias_table() -> list[tuple[str, str]]:
@@ -1362,7 +1648,8 @@ def _flagged(strings: list[str], words: tuple[str, ...]) -> bool:
 
 def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
                      diagnosis: Any, target: dict,
-                     code_map: dict[str, str] | None = None) -> dict:
+                     code_map: dict[str, str] | None = None,
+                     inspection_html: str | None = None) -> dict:
     """상세/이력/성능점검 응답을 하나의 평탄한 행으로."""
     strs = strings_of(detail, record, inspection, diagnosis)
     hay_flat = " \n ".join(strs).lower().replace(" ", "")
@@ -1371,34 +1658,16 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
     plate = pick(detail or {}, "vehicleNo", "VehicleNo", "carNo", "CarNo",
                  "vehicle.vehicleNo", "manage.vehicleNo", default="")
 
-    # 옵션 목록. 엔카는 옵션명 대신 숫자 코드를 내려주기도 하므로
-    # 이름/코드를 구분해서 담고, 어디서 찾았는지도 남긴다.
-    options, option_codes, option_source = extract_options(detail, code_map)
+    # 엔카 옵션은 수집하지 않는다.
+    # 엔카 옵션 목록에는 에어서스펜션·후륜조향 항목 자체가 없고(옵션 페이지에서
+    # 직접 확인), 나머지도 숫자 코드로만 와서 쓸 수 없다. 옵션 확인은
+    # 헤이딜러 숨은이력 전담이다.
+    options: list[str] = []
 
     # 사고/이력 플래그 — 부정어 가드를 거쳐 문자열 단위로 판정
     flood = _flagged(strs, FLOOD_WORDS)
     rental = _flagged(strs, RENTAL_WORDS)
 
-    # 에어서스 키워드: 설정 키워드가 아니라 '실제로 매칭된 옵션명'을 남긴다.
-    kws = [k.lower().replace(" ", "") for k in target.get("airsus_keywords", [])]
-    airsus_hits: list[str] = []
-    for s in (options or strs):
-        flat = s.lower().replace(" ", "")
-        if len(s) <= 60 and any(k in flat for k in kws) and s not in airsus_hits:
-            airsus_hits.append(s.strip())
-    if not airsus_hits and any(k in hay_flat for k in kws):
-        airsus_hits.append("(옵션 목록 외 텍스트에서 키워드 발견)")
-
-    # 엔카 쪽 에어서스 정보는 '판정' 이 아니라 '판매자가 뭐라고 썼는가' 일 뿐이다.
-    #
-    # 옵션 목록과 설명글은 딜러가 홍보용으로 쓴 자유 텍스트다. 없는데 적어
-    # 두거나 있는데 안 적는 일이 흔하고, 실제로 "코드에 없으니 미장착" 으로
-    # 본 매물의 설명에 "에어서스펜션 옵션적용차량" 이 적혀 있던 반례가 있었다.
-    # 그래서 여기서는 결론을 내지 않고 언급 여부만 남긴다.
-    # 실제 판정은 3단계(헤이딜러 출고 기록)에서 한다.
-    unresolved = [c for c in option_codes if not code_map or c not in code_map]
-    airsus_status = ("판매자 설명에 언급 있음" if airsus_hits
-                     else "판매자 설명에 언급 없음")
 
     # 성능점검 요약: 사람이 읽을 짧은 문장으로
     insp_summary = ""
@@ -1412,6 +1681,10 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
 
     rec = normalize_record(record)
     insp = normalize_inspection(inspection)
+
+    # 성능기록부 HTML 페이지가 주 소스. API 는 보조.
+    page = (normalize_inspection_page(parse_inspection_page(inspection_html))
+            if inspection_html else {})
     _acc_lines, _acc_verdict = describe_accidents(rec)
 
     owner_changes = rec["owner_change_count"]
@@ -1461,34 +1734,15 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
     # 엔카진단은 별도 endpoint 보다 광고 필드가 더 신뢰할 만하다
     diagnosed = bool(diagnosis) or _yes(encar_check) or _yes(direct_inspected)
 
-    # 주요 옵션 언급 여부 — 에어서스와 같은 이유로 점수에는 반영하지 않는다
-    import config as _cfg
-    option_mentions = {}
-    for label, kws in getattr(_cfg, "OPTION_MENTION_KEYWORDS", {}).items():
-        flat_kws = [k.lower().replace(" ", "") for k in kws]
-        found = [o for o in options
-                 if any(k in o.lower().replace(" ", "") for k in flat_kws)]
-        if not found and any(k in hay_flat for k in flat_kws):
-            found = ["(설명글에서 발견)"]
-        option_mentions[f"opt_{label}"] = ", ".join(found)
-
     return {
         "vehicle_id": vid,
         "plate_no": plate or "",
-        **option_mentions,
-        "options": " | ".join(options[:80]),
-        "options_count": len(options),
-        "option_codes": ",".join(option_codes[:120]),
-        "option_codes_unresolved": len(unresolved),
-        "option_source": option_source,
         "origin_price_manwon": origin_price if origin_price is not None else "",
         "warranty": str(warranty)[:200] if warranty else "",
         "view_count": view_count if view_count is not None else "",
         "subscribe_count": subscribe_count if subscribe_count is not None else "",
         "encar_check": _yes(encar_check),
         "direct_inspected": _yes(direct_inspected),
-        "airsus_status": airsus_status,
-        "seller_airsus_mention": bool(airsus_hits),
         # 보험이력 — 값이 없으면 "" (응답에 없음). 0 으로 채우지 않는다.
         "record_available": rec["record_available"],
         "record_fields_found": ", ".join(rec["record_fields_found"]),
@@ -1516,10 +1770,19 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "insp_leak": insp["leak_note"] or "",
         "insp_corrosion": insp["corrosion_note"] or "",
         "insp_tire": insp["tire_note"] or "",
-        "insp_repair_notes": insp["repair_notes"] or "",
-        "insp_repair_penalty": _blank(insp["repair_penalty"]),
-        "insp_worst_rank": insp["repair_worst_rank"] or "",
-        "insp_worst_status": insp.get("repair_worst_status") or "",
+        "insp_repair_notes": (page.get("page_repair_notes")
+                              or insp["repair_notes"] or ""),
+        "insp_repair_penalty": _blank(
+            page.get("page_repair_penalty") if page.get("page_repair_notes")
+            else insp["repair_penalty"]),
+        **page,
+        # 부위 등급은 성능기록부 페이지를 우선하고, 없으면 코멘트 파싱으로.
+        "repair_grade_source": ("성능기록부" if page.get("page_repair_notes")
+                                else ("점검자 코멘트" if insp["repair_notes"] else "")),
+        "insp_worst_rank": (page.get("page_worst_rank")
+                            or insp["repair_worst_rank"] or ""),
+        "insp_worst_status": (page.get("page_worst_status")
+                              or insp.get("repair_worst_status") or ""),
         "insp_unclassified": insp["repair_unclassified"] or "",
         "battery_pack_damage": _blank(insp["battery_pack_damage"]),
         "insp_diagnostics": insp.get("diagnostics") or "",
@@ -1542,13 +1805,12 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "accident_lines": " | ".join(_acc_lines),
         "accident_type_verdict": _acc_verdict,
         # 최초등록일 (배터리 보증 기준일)
-        "first_registration_date": str(first_reg) if first_reg else "",
+        "first_registration_date": str(
+            page.get("page_first_registration") or first_reg or ""),
         "flood_or_total_loss": flood or bool((rec["flood_total_count"] or 0)),
         "rental_or_commercial": rental,
         "one_owner": "" if one_owner is None else one_owner,
         "encar_diagnosed": diagnosed,
-        "airsus_keyword_hits": ", ".join(airsus_hits),
-        "has_airsus_keyword": bool(airsus_hits),
         "inspection_summary": insp_summary,
         "detail_ok": detail is not None,
     }
