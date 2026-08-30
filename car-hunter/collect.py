@@ -847,8 +847,71 @@ def _pick_for_detail(rows: list[dict], target: dict, top_n: int) -> list[dict]:
     return [r for _, r in scored[:top_n]]
 
 
+INCREMENTAL_SLOW_DAYS = 30      # 보험이력·성능기록부를 다시 받는 주기
+
+
+def plan_detail_fetch(picked: list[dict], full: bool = False) -> dict:
+    """매물별로 '새로 받을지 / 저장분을 쓸지' 를 정한다.
+
+    매주 돌리는데 매번 전량을 다시 받으면 40분이 넘고 엔카에도 부담이다.
+    대부분의 매물은 지난주와 똑같다. 달라지는 것은 가격뿐이다.
+
+    세 갈래로 나눈다:
+      fetch        새 매물이거나 30일이 지났다 -> 전부 새로
+      fetch_fast   가격만 바뀌었다 -> 차량정보·진단만 새로 받고,
+                   보험이력·성능점검·성능기록부는 저장분을 쓴다
+                   (이 셋은 차가 팔리기 전까지 거의 바뀌지 않는다)
+      reuse        가격도 그대로다 -> 아무것도 받지 않는다
+
+    --full 이면 전부 fetch 다.
+    """
+    from common import to_int
+
+    prev_rows = {str(r.get("vehicle_id")): r for r in read_csv(LISTINGS_CSV)}         if os.path.exists(LISTINGS_CSV) else {}
+    prev_details = read_json(DETAILS_JSON) or {}
+    today = datetime.now()
+
+    out = {"mode": {}, "fetch": [], "fetch_fast": [], "reuse": [],
+           "refresh_slow": []}
+    for r in picked:
+        vid = str(r.get("vehicle_id"))
+        cached = prev_details.get(vid) or {}
+        old_row = prev_rows.get(vid)
+
+        if full or not cached or not cached.get("detail"):
+            out["mode"][vid] = "fetch"
+            out["fetch"].append(vid)
+            continue
+
+        # 보험이력·성능기록부가 오래됐으면 통째로 다시 받는다.
+        stale = True
+        ts = cached.get("slow_fetched_at") or cached.get("fetched_at") or ""
+        if ts:
+            try:
+                age = (today - datetime.fromisoformat(ts[:19])).days
+                stale = age >= INCREMENTAL_SLOW_DAYS
+            except ValueError:
+                stale = True
+        if stale:
+            out["mode"][vid] = "fetch"
+            out["fetch"].append(vid)
+            out["refresh_slow"].append(vid)
+            continue
+
+        price_now = to_int(r.get("price_manwon"))
+        price_old = to_int(old_row.get("price_manwon")) if old_row else None
+        if old_row is None or price_old is None or price_now != price_old:
+            out["mode"][vid] = "fetch_fast"
+            out["fetch_fast"].append(vid)
+        else:
+            out["mode"][vid] = "reuse"
+            out["reuse"].append(vid)
+    return out
+
+
 def collect_target(client, target: dict, limit: int, with_detail: bool,
-                   details_sink: dict) -> list[dict]:
+                   details_sink: dict, full: bool = False,
+                   prev_details: dict | None = None) -> list[dict]:
     """한 차종을 수집한다.
 
     /premium 과 /general 은 서로 다른 광고 상품의 매물을 돌려주므로
@@ -930,7 +993,9 @@ def collect_target(client, target: dict, limit: int, with_detail: bool,
     picked = _pick_for_detail(rows, target, top_n)
     picked_ids = {r["vehicle_id"] for r in picked}
 
-    est_min = len(picked) * 4 * config.COLLECT["request_interval_sec"] / 60
+    _p = plan_detail_fetch(picked, full=full)
+    _req = len(_p["fetch"]) * 5 + len(_p["fetch_fast"]) * 2
+    est_min = _req * config.COLLECT["request_interval_sec"] / 60
     log(f"  상세 조회 대상 {len(picked)}/{len(rows)}건 (예상 {est_min:.0f}분)")
     if len(rows) > len(picked):
         log(f"  나머지 {len(rows) - len(picked)}건은 시세 회귀 표본으로만 사용합니다")
@@ -939,25 +1004,67 @@ def collect_target(client, target: dict, limit: int, with_detail: bool,
         r["detail_fetched"] = r["vehicle_id"] in picked_ids
         r["collected_at"] = datetime.now().isoformat(timespec="seconds")
 
+    plan = plan_detail_fetch(picked, full=full)
+    if not full:
+        log(f"  증분: 새로 받을 매물 {len(plan['fetch'])}건, "
+            f"저장분 재사용 {len(plan['reuse'])}건"
+            + (f", 성능기록부·보험이력만 갱신 {len(plan['refresh_slow'])}건"
+               if plan["refresh_slow"] else ""))
+
     for i, listing in enumerate(picked, 1):
         vid = listing["vehicle_id"]
-        log(f"  상세 {i}/{len(picked)} (id={vid})")
-        detail = client.detail(vid)
-        record = client.record(vid)
-        inspection = client.inspection(vid)
-        diagnosis = client.diagnosis(vid)
-        page_html = client.inspection_page(vid)
+        mode = plan["mode"].get(vid, "fetch")
+        cached = (prev_details or {}).get(vid) or {}
 
+        if mode == "reuse":
+            # 가격도 그대로고 최근에 받았다. 다시 두들길 이유가 없다.
+            bucket = details_sink.setdefault(vid, {})
+            bucket.update({k: cached.get(k) for k in
+                           ("detail", "record", "inspection", "diagnosis",
+                            "inspection_html")})
+            bucket["fetched_at"] = cached.get("fetched_at", "")
+            bucket["slow_fetched_at"] = cached.get("slow_fetched_at", "")
+            listing.update(api.normalize_detail(
+                vid, cached.get("detail"), cached.get("record"),
+                cached.get("inspection"), cached.get("diagnosis"), target,
+                inspection_html=cached.get("inspection_html")))
+            listing["detail_fetched"] = True
+            listing["detail_source"] = "저장분 재사용"
+            listing["collected_at"] = datetime.now().isoformat(timespec="seconds")
+            continue
+
+        slow = (mode == "fetch")          # 성능기록부·보험이력까지 새로
+        label = "전체" if slow else "가격변동(빠른 항목만)"
+        log(f"  상세 {i}/{len(picked)} (id={vid}) — {label}")
+
+        detail = client.detail(vid)
+        diagnosis = client.diagnosis(vid)
+        if slow:
+            record = client.record(vid)
+            inspection = client.inspection(vid)
+            page_html = client.inspection_page(vid)
+        else:
+            # 보험이력·성능점검·성능기록부는 잘 바뀌지 않는다.
+            # 30일이 안 지났으면 저장분을 그대로 쓴다.
+            record = cached.get("record")
+            inspection = cached.get("inspection")
+            page_html = cached.get("inspection_html")
+
+        now = datetime.now().isoformat(timespec="seconds")
         bucket = details_sink.setdefault(vid, {})
         bucket.update({"detail": detail, "record": record,
                        "inspection": inspection, "diagnosis": diagnosis,
-                       "inspection_html": page_html})
+                       "inspection_html": page_html,
+                       "fetched_at": now,
+                       "slow_fetched_at": (now if slow else
+                                           cached.get("slow_fetched_at", ""))})
 
         listing.update(api.normalize_detail(vid, detail, record, inspection,
                                             diagnosis, target,
                                             inspection_html=page_html))
         listing["detail_fetched"] = True
-        listing["collected_at"] = datetime.now().isoformat(timespec="seconds")
+        listing["detail_source"] = "전체 조회" if slow else "가격변동 갱신"
+        listing["collected_at"] = now
 
     detailed = [r for r in rows if r.get("detail_fetched")]
     got_page = sum(1 for r in detailed if r.get("page_available"))
@@ -1044,12 +1151,21 @@ def cmd_collect(args) -> int:
     client = api.EncarClient(config.COLLECT)
     all_rows: list[dict] = []
     details: dict = {}
+    # 지난 실행에서 받아 둔 상세. 증분 수집이 여기서 재사용한다.
+    prev_details = {} if args.full else (read_json(DETAILS_JSON) or {})
+    if args.full:
+        log("--full: 저장분을 쓰지 않고 전부 다시 받습니다")
+    elif prev_details:
+        log(f"증분 수집: 저장된 상세 {len(prev_details)}건을 재사용합니다 "
+            f"(전부 다시 받으려면 --full)")
     blocked: api.EncarBlocked | None = None
     unreachable: api.EncarUnreachable | None = None
 
     for target in targets:
         try:
-            all_rows.extend(collect_target(client, target, limit, not args.no_detail, details))
+            all_rows.extend(collect_target(
+                client, target, limit, not args.no_detail, details,
+                full=args.full, prev_details=prev_details))
         except api.EncarBlocked as e:
             blocked = e
             break
@@ -1797,6 +1913,10 @@ def main() -> int:
     p.add_argument("--model", metavar="KEY", help="config.TARGETS 의 key 하나만 처리")
     p.add_argument("--limit", type=int, help="모델당 최대 건수")
     p.add_argument("--no-detail", action="store_true", help="상세 API 생략")
+    p.add_argument("--full", action="store_true",
+                   help="증분 수집을 쓰지 않고 전부 다시 받는다 "
+                        "(기본은 증분 — 가격이 그대로인 매물은 저장분 재사용, "
+                        "보험이력·성능기록부는 30일마다 갱신)")
     p.add_argument("--q", help="검색 q 파라미터 직접 지정 (브라우저에서 복사한 값)")
     p.add_argument("--mfr", help="--discover 전용: 이 제조사의 모델그룹을 조회")
     p.add_argument("--mg", help="--discover 전용: 이 모델그룹의 하위 모델을 조회")

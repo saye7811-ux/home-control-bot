@@ -266,6 +266,60 @@ def print_pooling(pool: dict, per_model: list) -> None:
     print(f"   판단({pool['mode']}): {pool['verdict']}")
 
 
+def print_alerts(alerts: dict) -> None:
+    """이번 주에 손댈 것만. 없으면 한 줄로 끝낸다."""
+    A = config.ALERTS
+    print(f"\n{_hr('━')}")
+    print(" 이번 주 주목할 매물")
+    print(_hr('━'))
+    if not alerts.get("any"):
+        print(" 없습니다. 아래 전체 순위는 참고용입니다.")
+        return
+
+    def _show(rows, title, note):
+        if not rows:
+            return
+        print(f"\n {title}  ({len(rows)}건)")
+        print(f"   {note}")
+        for r in rows[:8]:
+            sg = to_float(r.get("value_gap_sigma"))
+            gap = to_float(r.get("value_gap_manwon"))
+            pct = to_float(r.get("value_gap_pct"))
+            dom = to_int(r.get("days_on_market"))
+            chg = to_float(r.get("price_change_manwon"))
+            bits = []
+            if gap is not None:
+                bits.append(f"{gap:+,.0f}만원")
+            if pct is not None:
+                bits.append(f"{pct:+.1f}%")
+            if sg is not None:
+                bits.append(f"{sg:+.2f}σ")
+            if chg is not None:
+                bits.append(f"가격 {chg:+,.0f}만원")
+            if dom is not None:
+                bits.append(f"보유 {dom}일")
+            print(f"     {r.get('plate_no') or r.get('vehicle_id'):<11}"
+                  f"{fmt_manwon(r.get('price_manwon')):>11}  "
+                  f"{' · '.join(bits)}")
+            if r.get("value_verdict"):
+                print(f"       -> {r['value_verdict']}")
+            if r.get("listing_url"):
+                print(f"       {r['listing_url']}")
+
+    _show(alerts["opportunity"],
+          f"진짜 기회 — {A['opportunity_sigma']:.0f}σ 이상이고 싼 이유도 못 찾음",
+          "가장 먼저 보세요. 통계적으로 유의미하고 할인 사유가 설명되지 않습니다.")
+    _show(alerts["price_drop"],
+          f"지난 실행 대비 {A['price_drop_manwon']:,}만원 이상 내림",
+          "딜러가 값을 내렸다 = 안 팔리고 있다 = 협상이 열렸다는 뜻입니다.")
+    _show(alerts["new_strong"],
+          f"새로 올라온 매물 중 {A['new_listing_sigma']}σ 이상",
+          "좋은 매물은 초기에 사라집니다.")
+    _show(alerts["long_held"],
+          f"딜러 보유 {A['days_on_market']}일 초과",
+          "오래 안 팔린 매물입니다. 협상 여지가 크지만 남들이 지나쳤다는 신호이기도 합니다.")
+
+
 def print_run_diff(diff: dict) -> None:
     """지난 실행과 무엇이 달라졌나.
 
@@ -579,6 +633,8 @@ def main() -> int:
     log(f"저장: {SCORED_CSV} (순위 {len(ranked)}건 + 표본 {skipped}건)")
 
     diff = history.diff_runs(scored_all)
+    alerts = scoring.build_alerts(ranked, diff)
+    print_alerts(alerts)
     print_run_diff(diff)
     print_market_trend()
     print_top(ranked, args.top, sort_label=sort_label)
@@ -587,7 +643,7 @@ def main() -> int:
     if not args.no_report:
         html = report_mod.build_html(
             models, ranked[:max(args.top, 20)], stage="stage2",
-            diff=diff, trend=history.market_trend())
+            diff=diff, trend=history.market_trend(), alerts=alerts)
         with open(REPORT_HTML, "w", encoding="utf-8") as f:
             f.write(html)
         log(f"저장: {REPORT_HTML}")

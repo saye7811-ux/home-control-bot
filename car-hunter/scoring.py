@@ -714,6 +714,50 @@ def judge_value(row: dict) -> dict:
     return row
 
 
+def build_alerts(ranked: list[dict], diff: dict | None) -> dict:
+    """매주 볼 것만 추린다.
+
+    전체 순위표를 매주 처음부터 읽을 수는 없다. 지난주와 달라졌거나
+    지금 손대야 하는 것만 뽑는다. 하나도 없으면 그렇게 말한다.
+    """
+    A = config.ALERTS
+    diff = diff or {}
+    out = {"opportunity": [], "price_drop": [], "new_strong": [],
+           "long_held": [], "any": False}
+
+    for r in ranked:
+        sg = to_float(r.get("value_gap_sigma"))
+        if sg is not None and sg >= A["opportunity_sigma"] and                 r.get("value_verdict") in A["opportunity_verdicts"]:
+            out["opportunity"].append(r)
+
+        dom = to_int(r.get("days_on_market"))
+        gap = to_float(r.get("value_gap_manwon"))
+        if dom is not None and dom >= A["days_on_market"] and (gap or 0) > 0:
+            out["long_held"].append(r)
+
+    ranked_by_id = {str(r.get("vehicle_id")): r for r in ranked}
+
+    for r in diff.get("price_down", []):
+        d = to_float(r.get("price_change_manwon"))
+        if d is not None and -d >= A["price_drop_manwon"]:
+            cur = ranked_by_id.get(str(r.get("vehicle_id")))
+            out["price_drop"].append(cur or r)
+
+    for r in diff.get("new", []):
+        cur = ranked_by_id.get(str(r.get("vehicle_id")))
+        if cur is None:
+            continue
+        sg = to_float(cur.get("value_gap_sigma"))
+        if sg is not None and sg >= A["new_listing_sigma"]:
+            out["new_strong"].append(cur)
+
+    for k in ("opportunity", "price_drop", "new_strong", "long_held"):
+        out[k].sort(key=lambda r: -(to_float(r.get("value_gap_sigma")) or -9e9))
+    out["any"] = any(out[k] for k in
+                     ("opportunity", "price_drop", "new_strong", "long_held"))
+    return out
+
+
 def _is_accident_free(r: dict) -> bool:
     """보험이력으로 '확인된' 무사고만 True. 모르면 False."""
     if str(r.get("record_available", "")).strip().lower() not in ("true", "1", "y"):
@@ -781,7 +825,9 @@ def _km_coverage_warning(used: list[dict], pool: list[dict]) -> str:
     def p90(x):
         return x[max(0, int(len(x) * 0.9) - 1)]
     hi_used = sum(1 for k in a if k > 50_000)
-    if p90(a) >= p90(b) * 0.6 and hi_used >= 5:
+    # 5만km 초과가 10대를 넘으면 계수가 충분히 잡힌 것으로 보고
+    # 경고를 끈다. 매주 표본이 쌓이면 저절로 여기에 도달한다.
+    if hi_used >= 10 or (p90(a) >= p90(b) * 0.6 and hi_used >= 5):
         return ""
     return (f"회귀 표본 {len(a)}대 중 5만km 초과가 {hi_used}대뿐입니다 "
             f"(상위90% {p90(a):,}km / 전체 표본은 {p90(b):,}km). "

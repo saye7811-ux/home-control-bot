@@ -6,9 +6,17 @@ from __future__ import annotations
 import html
 from datetime import datetime
 
+import config
+
 from common import fmt_km, fmt_manwon, to_float, to_int
 
 CHECKLIST = [
+    ("성능기록부 원본 요구 (사진뿐인 매물)", "리포트에서 '성능기록부 사진뿐' 으로 "
+     "표시된 매물은 수리 부위·고전원전기장치·주행거리 계기상태를 하나도 확인할 수 "
+     "없다. 무사고라서 비어 있는 것이 아니라 읽을 데이터가 없는 것이다. "
+     "계약 전에 딜러에게 성능·상태점검기록부 원본(또는 구조화된 페이지)을 반드시 "
+     "요구하고, 못 받으면 그 매물은 후보에서 빼는 것이 안전하다. "
+     "이 항목을 먼저 처리해야 나머지 확인이 의미가 있다."),
     ("배터리 SOH 진단", "서비스센터 또는 사설 진단으로 SOH(잔존용량) 측정. "
      "iX는 BMW 진단기(ISTA), EQE는 XENTRY 기준 수치를 요청할 것. 90% 미만이면 재협상 근거."),
     ("고전압 배터리 보증 승계 확인", "최초등록일 기준 8년/16만km 잔여분이 실제로 승계되는지 "
@@ -400,12 +408,20 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         if photo:
             links.append(f'<a href="{_e(photo)}" target="_blank" rel="noopener">사진</a>')
 
+        # 성능기록부가 사진뿐이면 행 전체를 표시해 둔다. 수리 이력을
+        # 아예 모르는 매물이라 다른 매물과 같은 눈으로 보면 안 된다.
+        photo_only = str(r.get("page_is_image", "")).strip().lower() in ("true", "1")
+        row_cls = ' class="row-photo"' if photo_only else ""
+        photo_flag = ('<div class="flag-photo">성능기록부 사진뿐 — 원본 요구 필수</div>'
+                      if photo_only else "")
+
         out.append(f"""
-      <tr>
+      <tr{row_cls}>
         <td class="rank">{i}</td>
         <td>
           <div class="plate">{_e(plate)}</div>
           <div class="muted small">{_e(r.get('model_label'))} · {_e(r.get('trim'))}</div>
+          {photo_flag}
           {hidden_html}
         </td>
         <td class="num"><b>{fmt_manwon(r.get('price_manwon'))}</b>
@@ -490,6 +506,21 @@ border:2px solid var(--plate-fg)}
 .flag-check{margin-top:6px;padding:4px 8px;border-radius:6px;font-size:12px;
             font-weight:700;background:rgba(180,83,9,.14);color:#b45309;
             border:1px solid rgba(180,83,9,.35)}
+.flag-photo{margin-top:6px;padding:5px 9px;border-radius:6px;font-size:12px;
+            font-weight:800;background:#7c2d12;color:#fff}
+.alerts{margin:22px 0 8px}
+.alerts.none{padding:16px 18px;border:1px dashed var(--border);border-radius:10px}
+.alerts.none h2{margin:0 0 4px;font-size:17px}
+.alert-card{border:1px solid var(--border);border-radius:10px;padding:14px 16px;
+            margin:10px 0;background:var(--card)}
+.alert-card h3{margin:0 0 2px;font-size:15px}
+.alert-card.a-gold{border-left:5px solid #b45309}
+.alert-card.a-drop{border-left:5px solid var(--good)}
+.alert-card.a-new{border-left:5px solid #2563eb}
+.alert-card.a-held{border-left:5px solid var(--muted)}
+.alist{margin:8px 0 0;padding-left:18px}
+.alist li{margin:6px 0;line-height:1.5}
+tr.row-photo td{background:rgba(124,45,18,.06)}
 .bdcell{min-width:250px}
 table.bd{width:100%;border-collapse:collapse;font-size:11.5px;min-width:auto}
 table.bd td{padding:2px 4px;border:0;vertical-align:top}
@@ -607,10 +638,75 @@ def _trend_section(trend: list[dict] | None) -> str:
   </div>"""
 
 
+def _alerts_section(alerts: dict | None) -> str:
+    """이번 주에 손댈 것만 맨 위에. 없으면 한 줄로 끝낸다."""
+    if alerts is None:
+        return ""
+    if not alerts.get("any"):
+        return ('<div class="alerts none"><h2>이번 주 주목할 매물 없음</h2>'
+                '<p>알림 조건에 걸리는 매물이 없습니다. 아래 전체 순위는 참고용입니다.</p>'
+                '</div>')
+
+    def _card(rows, title, note, cls):
+        if not rows:
+            return ""
+        items = []
+        for r in rows[:8]:
+            bits = []
+            gap = to_float(r.get("value_gap_manwon"))
+            pct = to_float(r.get("value_gap_pct"))
+            sg = to_float(r.get("value_gap_sigma"))
+            chg = to_float(r.get("price_change_manwon"))
+            dom = to_int(r.get("days_on_market"))
+            if gap is not None:
+                bits.append(f"{gap:+,.0f}만원")
+            if pct is not None:
+                bits.append(f"{pct:+.1f}%")
+            if sg is not None:
+                bits.append(f"{sg:+.2f}&sigma;")
+            if chg is not None:
+                bits.append(f"가격 {chg:+,.0f}만원")
+            if dom is not None:
+                bits.append(f"보유 {dom}일")
+            url = r.get("listing_url") or ""
+            plate = _e(r.get("plate_no") or r.get("vehicle_id") or "?")
+            link = f'<a href="{_e(url)}" target="_blank">{plate}</a>' if url else plate
+            items.append(
+                f'<li><b>{link}</b> <span class="muted">{_e(r.get("model_label") or "")}</span> '
+                f'{fmt_manwon(r.get("price_manwon"))} · {" · ".join(bits)}'
+                + (f'<div class="muted small">{_e(r.get("value_verdict") or "")}'
+                   f' — {_e(r.get("value_verdict_note") or "")}</div>'
+                   if r.get("value_verdict") else "")
+                + '</li>')
+        return (f'<div class="alert-card {cls}"><h3>{title} '
+                f'<span class="muted">{len(rows)}건</span></h3>'
+                f'<p class="muted">{note}</p><ul class="alist">{"".join(items)}</ul></div>')
+
+    A = config.ALERTS
+    return f"""
+  <div class="alerts">
+    <h2>이번 주 주목할 매물</h2>
+    {_card(alerts['opportunity'],
+           f"진짜 기회 — {A['opportunity_sigma']:.0f}&sigma; 이상이고 싼 이유도 못 찾음",
+           "가장 먼저 보세요. 통계적으로 유의미하고 할인 사유가 설명되지 않습니다.", "a-gold")}
+    {_card(alerts['price_drop'],
+           f"지난 실행 대비 {A['price_drop_manwon']:,}만원 이상 내림",
+           "딜러가 값을 내렸다 = 안 팔리고 있다 = 협상이 열렸다는 뜻입니다.", "a-drop")}
+    {_card(alerts['new_strong'],
+           f"새로 올라온 매물 중 {A['new_listing_sigma']}&sigma; 이상",
+           "좋은 매물은 초기에 사라집니다.", "a-new")}
+    {_card(alerts['long_held'],
+           f"딜러 보유 {A['days_on_market']}일 초과",
+           "오래 안 팔린 매물입니다. 협상 여지가 크지만 남들이 지나쳤다는 "
+           "신호이기도 합니다.", "a-held")}
+  </div>"""
+
+
 def build_html(models: list[tuple], ranked: list[dict], stage: str,
                notes: list[str] | None = None,
                diff: dict | None = None,
-               trend: list[dict] | None = None) -> str:
+               trend: list[dict] | None = None,
+               alerts: dict | None = None) -> str:
     stage_label = "최종 (헤이딜러 숨은이력 반영)" if stage == "final" else "1차 (엔카 데이터만)"
     banner = ""
     if stage != "final":
@@ -641,6 +737,7 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
   <p class="sub">단계: <b>{_e(stage_label)}</b> · 생성 {datetime.now():%Y-%m-%d %H:%M} ·
      분석 대상 {len(ranked)}대 표시</p>
   {banner}{note_html}
+  {_alerts_section(alerts)}
   {_diff_section(diff)}
   {_trend_section(trend)}
 
