@@ -231,6 +231,18 @@ https://www.encar.com/md/sl/mdsl_regcar.do?method=inspectionViewNew&carid={carid
 둔다. 텍스트만 읽어 "양호 불량" 을 값으로 삼으면 멀쩡한 차가 전부 불량이
 된다.
 
+**세부상태는 rowspan 을 펼쳐 읽는다.** 대분류에 `rowspan` 이 걸리고 그
+아래에 하위 항목이 여러 개 붙는 구조라, 대분류 칸 하나만 보면 하위 항목의
+불량을 놓친다. rowspan 이 덮는 행 전부를 읽어 **하나라도 불량이면 그 대분류를
+불량**으로 본다. `전기` 같은 낱말은 `사용연료: 전기` 처럼 다른 표에도 나오므로
+**세부상태 표 안에서만** 찾는다.
+
+**주행거리는 `txt_detail` 에서 읽는다.** 선택지(많음/보통/적음)는 아무것도
+선택돼 있지 않고 실제 수치는 `<span class="txt_detail">19,163km</span>` 에 있다.
+
+**리콜은 감점 대상이 아니다.** 대상이어도 이행했으면 문제가 아니고 미이행이면
+인수 전 처리하면 되므로 표시만 한다.
+
 **두 가지 표 배치를 모두 읽는다.**
 
 ```
@@ -256,9 +268,25 @@ https://www.encar.com/md/sl/mdsl_regcar.do?method=inspectionViewNew&carid={carid
 **진단이 막히면 마크업을 뽑아 준다.**
 
 ```bash
-python collect.py --inspect-page                 # 저장된 HTML 분석 + 진단
-python collect.py --inspect-page --find 랭크,휀더   # 특정 키워드 마크업만
+python collect.py --inspect-page                    # 저장된 HTML 분석 + 진단
+python collect.py --inspect-page --find 랭크,휀더      # 특정 키워드 마크업만
+python collect.py --inspect-page --carid 42586803   # 그 매물 페이지를 새로 받아 분석
 ```
+
+`--carid` 는 특정 매물의 성능기록부를 새로 받아 분석하고, **보험이력도 같이
+받아 대조**한다. 수리 부위가 비었을 때 그게 진짜 무사고인지, 아니면 자바
+스크립트로 나중에 채워지는 구조라 안 보이는 것인지 가려내기 위해서다.
+
+```
+[랭크가 비어 있음 — 무사고인지 JS 렌더링인지 판별]
+    보험이력: 내차 2 건 / 타차 0 건
+! 사고 기록이 있는데 랭크 목록이 비었습니다
+  -> 자바스크립트로 나중에 채워지는 구조로 보입니다.
+! JS 렌더링 의심 클래스 발견: uilistlank, uilanknone
+```
+
+JS 렌더링이 의심되면 랭크 목록을 채우는 스크립트 조각을 뽑아 준다.
+그 스크립트가 부르는 데이터 API 를 찾으면 HTML 대신 그걸 쓰면 된다.
 
 라벨이 아예 없는 항목(파싱 문제 아님)과 라벨은 있는데 값을 못 읽은 항목
 (진짜 문제)을 나눠 보여주고, 후자는 실제 마크업 원문을 출력한다.

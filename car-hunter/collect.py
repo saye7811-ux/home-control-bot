@@ -60,7 +60,7 @@ LISTING_FIELDS = [
     "page_vin_state", "page_tuning", "page_special_history", "page_usage_change",
     "page_recall", "page_recall_done", "page_accident_history", "page_simple_repair",
     "page_first_registration", "page_inspection_valid", "page_inspector_note",
-    "page_detail_bad", "page_detail_unknown",
+    "page_js_suspect", "page_detail_bad", "page_detail_unknown",
     "page_ev_hv_bad", "page_ev_hv_unknown", "page_ev_hv_checked", "page_parse_note",
     "origin_price_manwon", "warranty", "view_count", "subscribe_count",
     "inspection_summary", "photo_url", "listing_url",
@@ -1034,12 +1034,35 @@ def cmd_inspect_page(args) -> int:
     파서가 값을 못 읽었을 때 '실제 HTML 이 어떻게 생겼는지' 를 그대로
     보여주기 위한 것이다. 그 출력을 그대로 보내주면 파서를 맞출 수 있다.
     """
-    path = args.inspect_page or os.path.join(
-        os.path.dirname(DETAILS_JSON), "raw_inspection_page.html")
-    if not os.path.isfile(path):
-        die(f"성능기록부 HTML 을 못 찾았습니다: {path}\n"
-            "`python collect.py --probe` 를 먼저 실행하세요.")
-    html_text = open(path, encoding="utf-8", errors="replace").read()
+    record = None
+    if args.carid:
+        # 특정 매물 페이지를 새로 받아 분석한다.
+        # 사고 있는 매물로 시험해야 랭크 목록이 실제로 채워지는지 알 수 있다.
+        client = api.EncarClient(config.COLLECT)
+        vid = str(args.carid).strip()
+        log(f"carid={vid} 성능기록부 페이지 요청")
+        html_text = client.inspection_page(vid)
+        if not html_text:
+            die(f"carid={vid} 페이지를 못 받았습니다.")
+        path = os.path.join(os.path.dirname(DETAILS_JSON),
+                            f"raw_inspection_page_{vid}.html")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(html_text)
+        log(f"저장: {path}")
+        # 보험이력도 같이 받아 '사고가 있는데 랭크가 비었는지' 대조한다
+        try:
+            record = client.record(vid)
+        except (api.EncarBlocked, api.EncarUnreachable):
+            raise
+        except Exception:
+            record = None
+    else:
+        path = args.inspect_page or os.path.join(
+            os.path.dirname(DETAILS_JSON), "raw_inspection_page.html")
+        if not os.path.isfile(path):
+            die(f"성능기록부 HTML 을 못 찾았습니다: {path}\n"
+                "`python collect.py --probe` 를 먼저 실행하세요.")
+        html_text = open(path, encoding="utf-8", errors="replace").read()
 
     print("=" * 74)
     print(f" 성능기록부 HTML 분석 — {path} ({len(html_text):,} bytes)")
@@ -1054,6 +1077,34 @@ def cmd_inspect_page(args) -> int:
         print(f"  {rank:6} {body}")
     if not parsed.get("rank_sections"):
         warn("랭크 행을 못 찾았습니다.")
+
+    # --- 랭크가 비었을 때: 정말 무사고인가, JS 렌더링인가 ---
+    if not parsed["repairs"]:
+        print("\n[랭크가 비어 있음 — 무사고인지 JS 렌더링인지 판별]")
+        rec = api.normalize_record(record) if record else None
+        if rec:
+            my = rec.get("my_accident_count")
+            ot = rec.get("other_accident_count")
+            print(f"    보험이력: 내차 {my} 건 / 타차 {ot} 건")
+            if (my or 0) or (ot or 0):
+                warn("사고 기록이 있는데 랭크 목록이 비었습니다 "
+                     "-> 자바스크립트로 나중에 채워지는 구조로 보입니다.")
+            else:
+                print("    -> 보험이력도 무사고입니다. 랭크가 비는 게 정상입니다.")
+        elif args.carid:
+            print("    보험이력을 못 받아 대조하지 못했습니다.")
+        else:
+            print("    (--carid 를 주면 보험이력과 대조해 판별합니다)")
+
+        if parsed.get("js_render_suspect"):
+            warn(f"JS 렌더링 의심 클래스 발견: {parsed['js_hints']}")
+        if parsed.get("js_scripts"):
+            print("\n    랭크 목록을 채우는 스크립트 단서:")
+            for sc in parsed["js_scripts"]:
+                print(f"      {sc}")
+            print("\n    이 스크립트가 부르는 데이터 API 를 찾으면 그걸 직접 쓰면 됩니다.")
+            print("    브라우저 F12 -> Network -> Fetch/XHR 에서 성능기록부 페이지를")
+            print("    열 때 뜨는 요청 중 부위명이 든 응답을 찾아 URL 을 알려주세요.")
 
     print(f"\n[수리 부위 {len(parsed['repairs'])}건]")
     for r in parsed["repairs"]:
@@ -1331,6 +1382,8 @@ def main() -> int:
                    help="저장된 성능기록부 HTML 을 분석 + 마크업 진단")
     p.add_argument("--find", help="--inspect-page 전용: 이 키워드들의 마크업만 출력 "
                                   "(쉼표 구분, 예: 랭크,휀더,필러)")
+    p.add_argument("--carid", help="--inspect-page 전용: 이 매물의 성능기록부를 "
+                                   "새로 받아 분석 (사고 있는 매물로 시험할 때)")
     p.add_argument("--inspect-file", dest="inspect_file", nargs="?",
                    const="data/raw_inspection.json",
                    help="저장된 성능점검 JSON 을 네트워크 없이 분석")

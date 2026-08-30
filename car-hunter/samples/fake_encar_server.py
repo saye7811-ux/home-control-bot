@@ -84,8 +84,12 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/md/sl/mdsl_regcar.do":
             import os as _os
             here = _os.path.dirname(_os.path.abspath(__file__))
-            with open(_os.path.join(here, "mock_inspection_page.html"),
-                      encoding="utf-8") as f:
+            qs2 = parse_qs(u.query)
+            carid = (qs2.get("carid") or ["0"])[0]
+            # 42586803 = 사고 있는 매물 (랭크가 채워진 페이지)
+            name = ("mock_inspection_v2.html" if carid == "42586803"
+                    else "mock_inspection_v3.html")
+            with open(_os.path.join(here, name), encoding="utf-8") as f:
                 return self._send_html(f.read())
 
         qs = parse_qs(u.query)

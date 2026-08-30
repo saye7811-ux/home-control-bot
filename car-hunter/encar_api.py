@@ -1158,6 +1158,7 @@ def parse_inspection_page(html_text: str) -> dict:
         "detail_bad": [], "detail_unknown": [], "ev_hv": {}, "ev_hv_bad": [],
         "ev_hv_unknown": [], "fields": {}, "field_notes": {},
         "rank_sections": {}, "parse_note": "",
+        "js_render_suspect": False, "js_hints": "", "js_scripts": [],
     }
     if not html_text or not html_text.strip():
         out["parse_note"] = "페이지 내용이 비어 있습니다"
@@ -1268,8 +1269,14 @@ def parse_inspection_page(html_text: str) -> dict:
             out["fields"][key] = val
             out["field_notes"][key] = why if val else f"{why} (원문: {raw[:40]})"
         elif kind == "number":
-            out["fields"][key] = to_int(raw)
-            out["field_notes"][key] = raw[:40]
+            # 주행거리는 선택지(많음/보통/적음) 옆의 txt_detail 에 실제 값이 있다
+            detail_el = cell.find(class_=re.compile(r"txt_detail"))
+            if detail_el is not None:
+                out["fields"][key] = to_int(detail_el.get_text(" ", strip=True))
+                out["field_notes"][key] = f"txt_detail: {detail_el.get_text(strip=True)[:24]}"
+            else:
+                out["fields"][key] = to_int(raw)
+                out["field_notes"][key] = raw[:40]
         else:
             out["fields"][key] = raw[:400]
             out["field_notes"][key] = "텍스트"
@@ -1384,24 +1391,88 @@ def parse_inspection_page(html_text: str) -> dict:
                              "마크업이 예상과 다릅니다")
 
     # --- 3) 자동차 세부상태 ---
+    #
+    # 이 표는 대분류에 rowspan 이 걸리고 그 아래에 하위 항목이 여러 개 붙는다.
+    #   <th rowspan="3">냉각수누수</th><th>실린더 헤드</th><td>상태</td>
+    #   <tr><th>워터펌프</th><td>상태</td></tr>
+    #   <tr><th>라디에이터</th><td>상태</td></tr>
+    # 대분류 한 칸만 보면 하위 항목의 불량을 놓친다. 하위 전부를 읽어
+    # 하나라도 불량이면 그 대분류를 불량으로 본다.
+    #
+    # 또 '전기' 같은 낱말은 '사용연료: 전기' 처럼 다른 표에도 나오므로,
+    # 세부상태 표 안에서만 찾는다.
+    def _detail_table():
+        """세부상태 항목이 가장 많이 들어 있는 표."""
+        best, best_hits = None, 0
+        for tbl in soup.find_all("table"):
+            t = tbl.get_text(" ", strip=True).replace(" ", "")
+            hits = sum(1 for it in _cfg.INSPECTION_DETAIL_ITEMS
+                       if it.replace(" ", "") in t)
+            if hits > best_hits:
+                best, best_hits = tbl, hits
+        return best if best_hits >= 3 else None
+
+    dtable = _detail_table()
     seen_detail: set[str] = set()
     for item in _cfg.INSPECTION_DETAIL_ITEMS:
         key = item.replace(" ", "")
         if key in seen_detail:
             continue
-        cell = _cell_for([item])
-        if cell is None:
-            continue
-        seen_detail.add(key)
-        val, why = _pick_selected(cell, "state")
-        if val == "불량":
+
+        scope = dtable if dtable is not None else soup
+        # 대분류 th 를 찾고, rowspan 이 덮는 행들의 상태 칸을 전부 모은다
+        states: list[tuple[str | None, str]] = []
+        for th in scope.find_all("th"):
+            if th.get_text(" ", strip=True).replace(" ", "") != key:
+                continue
+            seen_detail.add(key)
+            try:
+                span = int(th.get("rowspan") or 1)
+            except ValueError:
+                span = 1
+            row = th.find_parent("tr")
+            rows = []
+            for _ in range(max(span, 1)):
+                if row is None:
+                    break
+                rows.append(row)
+                row = row.find_next_sibling("tr")
+            for r in rows:
+                for td in r.find_all("td"):
+                    if not _has_state(td):
+                        continue
+                    states.append(_pick_selected(td, "state"))
+            break
+
+        if not states:
+            # 대분류가 th 가 아니거나 표 밖에 있는 경우
+            cell = _cell_for([item])
+            if cell is None:
+                continue
+            seen_detail.add(key)
+            states.append(_pick_selected(cell, "state"))
+
+        vals = [v for v, _w in states]
+        bad_words = ("불량", "누유", "누수", "부식", "손상", "미흡")
+        if any(v and any(b in v for b in bad_words) for v in vals):
             out["detail_bad"].append(item)
-        elif val is None:
+        elif all(v is None for v in vals):
+            why = states[0][1] if states else "값 없음"
             out["detail_unknown"].append(f"{item}({why})")
 
     # --- 4) 고전원전기장치 ---
     for canonical, aliases in _cfg.EV_HV_ITEMS.items():
         cell = _cell_for(list(aliases))
+        if cell is not None and not _has_state(cell):
+            # 상태 표기가 없는 칸이면 같은 행/다음 행에서 상태 칸을 다시 찾는다
+            row = cell.find_parent("tr")
+            alt = None
+            if row is not None:
+                for td in row.find_all("td"):
+                    if _has_state(td):
+                        alt = td
+                        break
+            cell = alt or cell
         if cell is None:
             out["ev_hv_unknown"].append(f"{canonical}(항목 없음)")
             continue
@@ -1412,6 +1483,32 @@ def parse_inspection_page(html_text: str) -> dict:
             out["ev_hv_bad"].append(canonical)
         elif val is None:
             out["ev_hv_unknown"].append(f"{canonical}({why})")
+
+    # --- 5) JS 렌더링 의심 신호 ---
+    # uiListLank / uiLankNone 같은 클래스는 자바스크립트가 나중에 채우는
+    # 빈 틀일 수 있다. 그러면 HTML 만 받아서는 수리 부위가 영영 안 보인다.
+    raw_lower = html_text.lower()
+    js_hints = []
+    for marker in ("uilistlank", "uilanknone", "uilank"):
+        if marker in raw_lower:
+            js_hints.append(marker)
+    all_none = (out["rank_sections"] and
+                all(v == "없음" for v in out["rank_sections"].values()))
+    out["js_render_suspect"] = bool(js_hints) and all_none
+    out["js_hints"] = ", ".join(dict.fromkeys(js_hints))
+
+    # 랭크 목록을 채우는 스크립트 조각을 뽑아 둔다 (데이터 API 를 찾는 단서)
+    scripts = []
+    for sc in soup.find_all("script"):
+        src = sc.get("src")
+        body = sc.string or ""
+        if src and any(k in src.lower() for k in ("lank", "inspect", "record")):
+            scripts.append(f"[src] {src}")
+        elif body and any(k in body.lower() for k in
+                          ("uilistlank", "lank", "inspection", "getjson", "ajax")):
+            snippet = re.sub(r"\s+", " ", body).strip()[:300]
+            scripts.append(f"[inline] {snippet}")
+    out["js_scripts"] = scripts[:6]
 
     return out
 
@@ -1471,6 +1568,7 @@ def normalize_inspection_page(parsed: dict) -> dict:
         "page_ev_hv_checked": sum(1 for v in parsed.get("ev_hv", {}).values()
                                   if v.get("state")),
         "page_parse_note": parsed.get("parse_note", ""),
+        "page_js_suspect": parsed.get("js_render_suspect", False),
     }
 
 

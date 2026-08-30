@@ -58,7 +58,7 @@ SCORED_FIELDS = [
     "page_vin_state", "page_tuning", "page_special_history", "page_usage_change",
     "page_recall", "page_recall_done", "page_accident_history", "page_simple_repair",
     "page_first_registration", "page_inspection_valid", "page_inspector_note",
-    "page_detail_bad", "page_detail_unknown",
+    "page_js_suspect", "page_detail_bad", "page_detail_unknown",
     "page_ev_hv_bad", "page_ev_hv_unknown", "page_ev_hv_checked", "page_parse_note",
     "warranty", "view_count", "subscribe_count",
     "score_value", "score_battery", "bonus_total", "penalty_overrun", "penalty_total",

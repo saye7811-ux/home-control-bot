@@ -1,0 +1,51 @@
+<html><head><meta charset="utf-8"><title>성능·상태점검기록부</title></head><body>
+<!-- default 항목 선택된 경우 class 'on' 추가 / 아닌 항목 선택시 class 'active' 추가 -->
+
+<table class="tbl_2"><tbody>
+<tr><th>사용연료</th><td><span class="txt_state on">전기</span></td>
+    <th>차대번호</th><td>WBY21CF09PCL53939</td></tr>
+<tr><th>주행거리</th>
+    <td><span class="txt_detail"> 19,163km</span>
+        <span class="txt_state">많음</span><span class="txt_state">보통</span><span class="txt_state">적음</span></td>
+    <th>주행거리 계기상태</th>
+    <td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td></tr>
+</tbody></table>
+
+<table class="tbl_2"><tbody>
+<tr><th scope="col">사고이력</th><th scope="col">단순수리</th><th scope="col">용도변경</th></tr>
+<tr><td><span class="txt_state on">없음</span><span class="txt_state">있음</span></td>
+    <td><span class="txt_state on">없음</span><span class="txt_state">있음</span></td>
+    <td><span class="txt_state on">없음</span><span class="txt_state">있음</span></td></tr>
+</tbody></table>
+
+<h3>자동차 세부상태</h3>
+<table class="tbl_state"><tbody>
+<tr><th rowspan="3">냉각수누수</th><th>실린더 헤드/가스켓</th>
+    <td><span class="txt_state on">없음</span><span class="txt_state">누수</span></td></tr>
+<tr><th>워터펌프</th><td><span class="txt_state on">없음</span><span class="txt_state">누수</span></td></tr>
+<tr><th>라디에이터</th><td><span class="txt_state">없음</span><span class="txt_state active">누수</span></td></tr>
+<tr><th rowspan="2">누유</th><th>실린더 커버</th>
+    <td><span class="txt_state on">없음</span><span class="txt_state">누유</span></td></tr>
+<tr><th>오일팬</th><td><span class="txt_state on">없음</span><span class="txt_state">누유</span></td></tr>
+<tr><th>조향</th><th>작동상태</th><td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td></tr>
+<tr><th>제동</th><th>작동상태</th><td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td></tr>
+<tr><th>전기</th><th>발전기</th><td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td></tr>
+</tbody></table>
+
+<div class="accident_wrap">
+  <strong class="tit_lank">1랭크</strong>
+  <ul class="list_state uiListLank1"><li class="uiLankNone">없음</li></ul>
+  <strong class="tit_lank">2랭크</strong>
+  <ul class="list_state uiListLank2"><li class="uiLankNone">없음</li></ul>
+  <strong class="tit_lank">A랭크</strong>
+  <ul class="list_state uiListLankA"><li class="uiLankNone">없음</li></ul>
+  <strong class="tit_lank">B랭크</strong>
+  <ul class="list_state uiListLankB"><li class="uiLankNone">없음</li></ul>
+  <strong class="tit_lank">C랭크</strong>
+  <ul class="list_state uiListLankC"><li class="uiLankNone">없음</li></ul>
+</div>
+<script>
+  // 랭크 목록을 나중에 채운다
+  $.getJSON('/api/inspection/parts?carid=' + carId, function(d){ renderLank(d); });
+</script>
+</body></html>

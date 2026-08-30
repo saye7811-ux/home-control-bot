@@ -220,6 +220,9 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         if r.get("page_status_unknown"):
             ref.append('<div class="ref warnref">※ 상태 부호를 못 읽은 부위: '
                        + _e(r["page_status_unknown"])[:120] + '</div>')
+        if str(r.get("page_js_suspect")) == "True":
+            ref.append('<div class="ref warnref">※ 성능기록부 수리 부위가 '
+                       '비어 있으나 JS 로 채워지는 구조로 보입니다 — 부위 정보 미반영</div>')
         if r.get("page_unmatched_parts"):
             ref.append('<div class="ref warnref">※ 성능기록부에서 못 알아본 부위: '
                        + _e(r["page_unmatched_parts"]) + '</div>')
@@ -254,10 +257,16 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         if r.get("insp_comments"):
             ref.append('<div class="ref">※ 점검자 코멘트: '
                        + _e(r["insp_comments"])[:220] + '</div>')
-        if r.get("insp_recall") not in ("", None):
+        # 리콜은 감점 대상이 아니다. 대상이어도 이행했으면 문제가 아니고,
+        # 미이행이면 인수 전 처리하면 된다. 표시만 한다.
+        if r.get("page_recall"):
+            done = r.get("page_recall_done") or ""
+            ref.append(f'<div class="ref">※ 리콜: {_e(r["page_recall"])}'
+                       + (f" / 이행여부 {_e(done)}" if done else "")
+                       + ' (감점 대상 아님)</div>')
+        elif r.get("insp_recall") not in ("", None):
             rc = "대상" if str(r["insp_recall"]) == "True" else "해당없음"
-            rt = f" ({r['insp_recall_types']})" if r.get("insp_recall_types") else ""
-            ref.append(f'<div class="ref">※ 리콜: {_e(rc)}{_e(rt)}</div>')
+            ref.append(f'<div class="ref">※ 리콜: {_e(rc)} (감점 대상 아님)</div>')
         if r.get("insp_diagnostics"):
             ref.append('<div class="ref">※ 자기진단: '
                        + _e(r["insp_diagnostics"])[:140] + '</div>')
