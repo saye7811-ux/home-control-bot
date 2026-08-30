@@ -72,10 +72,17 @@ class MarketModel:
     dropped_note: str = ""         # 무엇을 뺐는지 (사람이 읽는 설명)
     n_lease: int = 0               # 표본에 섞인 리스·렌트 매물 수
     km_coverage_note: str = ""     # 주행거리 범위를 못 덮을 때의 경고
+    trim_offsets: dict = field(default_factory=dict)   # 트림 -> 잔존율 편차
+    trim_stats: list = field(default_factory=list)     # 트림별 실측 근거
 
     def predict(self, age: float | None, km: int | None,
-                origin: float | None = None) -> float | None:
-        """이 매물의 기준 시세(만원). ratio 모드는 신차가가 있어야 한다."""
+                origin: float | None = None,
+                trim: str | None = None) -> float | None:
+        """이 매물의 기준 시세(만원). ratio 모드는 신차가가 있어야 한다.
+
+        trim 을 주면 실측된 트림별 구조적 편차를 함께 반영한다.
+        (파라시스 배터리 트림처럼 시장이 구조적으로 기피하는 경우)
+        """
         if self.method == "median":
             if self.median_ratio and origin:
                 return self.median_ratio * origin
@@ -83,11 +90,21 @@ class MarketModel:
         if age is None or km is None:
             return None
         val = self.intercept + self.coef_age * age + self.coef_km * (km / 1000.0)
+        if trim:
+            val += self.trim_offsets.get(normalize_trim(trim), 0.0)
         if self.method == "ratio":
             if not origin:
                 return None          # 신차가 없으면 추측하지 않는다
             return val * origin
         return val
+
+    def trim_offset_manwon(self, trim: str | None,
+                           origin: float | None) -> float | None:
+        """이 매물에 적용된 트림 보정액(만원). 없으면 None."""
+        if not trim or not origin or self.method != "ratio":
+            return None
+        off = self.trim_offsets.get(normalize_trim(trim))
+        return (off * origin) if off else None
 
     def sigma_manwon(self, origin: float | None = None) -> float | None:
         """이 매물에서 '시세선의 불확실성' 이 몇 만원인가.
@@ -101,6 +118,91 @@ class MarketModel:
         if self.method == "ratio":
             return (self.resid_std * origin) if origin else None
         return self.resid_std
+
+
+def normalize_trim(t: str) -> str:
+    """트림 문자열을 비교 가능한 열쇠로 줄인다.
+
+    'xDrive50 스포츠 플러스' 와 'xDrive50 스포츠 스페셜 에디션' 은
+    같은 트림의 다른 패키지다. 패키지까지 나누면 표본이 부스러져
+    아무것도 측정할 수 없다. 핵심 등급만 남긴다.
+    """
+    t = (t or "").strip()
+    m = re.search(r"(EQE\s*\d{3}\+?)", t, re.I)
+    if m:
+        return re.sub(r"\s+", "", m.group(1)).upper()
+    m = re.search(r"xDrive\s*(M?\s*\d{2})", t, re.I)
+    if m:
+        return "XDRIVE" + re.sub(r"\s+", "", m.group(1)).upper()
+    m = re.search(r"M\s*(\d{2})", t)
+    if m:
+        return "XDRIVEM" + m.group(1)
+    return (t[:20] or "(미상)").upper()
+
+
+def battery_for_trim(trim: str) -> dict:
+    """트림명으로 배터리 제조사를 판정한다 (헤이딜러 없이)."""
+    info = getattr(config, "TRIM_BATTERY", {}).get(normalize_trim(trim))
+    return dict(info) if info else {"maker": "", "risk": "unknown", "note": ""}
+
+
+def measure_trim_offsets(market: "MarketModel", rows: list[dict]) -> None:
+    """트림별 잔존율 편차를 실측해 시세선에 붙인다.
+
+    잔존율 회귀는 신차가로 트림을 정규화하지만 그것만으로는 부족하다.
+    같은 신차가라도 시장이 특정 트림을 구조적으로 기피하면 잔존율이
+    계속 낮게 형성된다. 그러면 그 트림이 매주 '저평가' 상단에 올라오는데
+    실제로는 그게 제값이다.
+
+    계수는 사람이 정하지 않는다. 기준선을 그린 그 표본에서 트림별 잔차
+    평균을 재고, 표본이 충분하고(min_samples) 통계적으로 유의할 때만
+    (|t| > min_t) 반영한다. 부족하면 반영하지 않고 경고만 남긴다.
+
+    잔차를 '기준선을 그린 표본' 에서 재는 것이 중요하다. 사고차를 섞으면
+    사고가 많은 트림이 '기피 트림' 으로 잘못 잡힌다.
+    """
+    T = getattr(config, "TRIM_ADJUST", {})
+    market.trim_offsets, market.trim_stats = {}, []
+    if not T.get("enabled", True) or market.method != "ratio":
+        return
+
+    buckets: dict[str, list] = {}
+    for r in rows:
+        o = to_float(r.get("origin_price_manwon"))
+        p_ = to_float(r.get("price_manwon"))
+        a = to_float(r.get("age_years"))
+        km = to_int(r.get("mileage_km"))
+        if not (o and p_ and a is not None and km is not None):
+            continue
+        pred = market.predict(a, km, o, trim=None)      # 보정 전 기준선
+        if not pred:
+            continue
+        buckets.setdefault(normalize_trim(r.get("trim")), []).append((p_ - pred) / o)
+
+    for key, vals in sorted(buckets.items(), key=lambda x: -len(x[1])):
+        n = len(vals)
+        mu = float(np.mean(vals))
+        sd = float(np.std(vals, ddof=1)) if n > 1 else float("nan")
+        se = sd / math.sqrt(n) if (n > 1 and sd == sd) else float("nan")
+        t = (mu / se) if (se == se and se > 0) else float("nan")
+        applied = False
+        why = ""
+        if n < T.get("min_samples", 5):
+            why = f"표본 {n}대 — {T.get('min_samples', 5)}대 미만이라 반영하지 않음"
+        elif not (t == t) or abs(t) < T.get("min_t", 2.0):
+            why = f"t={t:.2f} — 우연과 구분되지 않아 반영하지 않음"
+        else:
+            cap = T.get("max_abs_pct", 6.0) / 100.0
+            mu_c = max(-cap, min(cap, mu))
+            market.trim_offsets[key] = mu_c
+            applied = True
+            why = (f"t={t:.2f} — 반영"
+                   + (f" (상한 {cap*100:.0f}%p 로 잘림)" if mu_c != mu else ""))
+        market.trim_stats.append({
+            "trim": key, "n": n, "mean_pct": mu * 100,
+            "se_pct": (se * 100 if se == se else None),
+            "t": (t if t == t else None), "applied": applied, "why": why,
+        })
 
 
 def is_lease_listing(row: dict) -> bool:
@@ -348,7 +450,8 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
 
     # 1) 기준 시세 — 같은 연식, '평균' 주행거리일 때의 시세
     expected_km = int(age * P["expected_annual_km"])
-    baseline = market.predict(age, expected_km, origin)
+    trim = row.get("trim")
+    baseline = market.predict(age, expected_km, origin, trim=trim)
     if baseline is None:
         if market.method == "ratio" and not origin:
             out["unknowns"].append("신차가를 못 받아 적정가를 낼 수 없습니다 "
@@ -360,11 +463,21 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
     out["expected_km"] = expected_km
     out["breakdown"].append(
         (f"기준 시세 (동일 연식 · 평균주행 {expected_km:,}km)", round(baseline, 0)))
+    # 트림 보정이 들어갔으면 얼마가 반영됐는지 밝힌다. 이 금액을 숨기면
+    # '왜 적정가가 이렇게 낮지?' 를 설명할 수 없다.
+    toff = market.trim_offset_manwon(trim, origin)
+    if toff:
+        bat = battery_for_trim(trim)
+        why = f"{normalize_trim(trim)} 트림의 실측 시장 편차"
+        if bat.get("maker"):
+            why += f" · 배터리 {bat['maker']}"
+        out["breakdown"].append((f"  ㄴ 위 기준 시세에 반영됨: {why}", round(toff, 0)))
+        out["trim_offset_manwon"] = round(toff, 0)
 
     fair = baseline
 
     # 2) 주행거리 — 회귀식의 km 계수를 그대로 쓴다
-    at_actual = market.predict(age, km, origin)
+    at_actual = market.predict(age, km, origin, trim=trim)
     mil_adj = (at_actual - baseline) if at_actual is not None else 0.0
     if not P.get("allow_low_mileage_premium", True):
         mil_adj = min(mil_adj, 0.0)
@@ -606,6 +719,26 @@ def explain_discount(row: dict, baseline: float | None) -> dict:
                              "확인할 수 없음", -a))
         out["extra_manwon"] += a
 
+    # 배터리 제조사 — 트림명으로 판정한다 (헤이딜러 없이).
+    #
+    # 주의: 트림 보정이 이미 적용됐다면 그 안에 이 효과가 들어 있다.
+    # 금액을 또 빼면 같은 이유로 두 번 깎는 셈이라 표시만 한다.
+    bat = battery_for_trim(row.get("trim"))
+    row["battery_maker"] = bat.get("maker", "")
+    row["battery_risk"] = bat.get("risk", "")
+    row["battery_note"] = bat.get("note", "")
+    if bat.get("risk") == "high":
+        if to_float(row.get("trim_offset_manwon")):
+            out["notes"] = out.get("notes", [])
+            out["notes"].append(
+                f"배터리 {bat['maker']} — {bat['note']} 이 효과는 위 기준 시세의 "
+                f"트림 보정에 이미 반영돼 있습니다 (중복 차감하지 않음)")
+        else:
+            a = pct(getattr(config, "BATTERY_RISK_PCT", {}).get("high", 0.0))
+            if a:
+                out["extra"].append((f"배터리 {bat['maker']} — {bat['note']}", -a))
+                out["extra_manwon"] += a
+
     # 자차보험 미가입은 '언제' 비었느냐가 갈린다.
     # 딜러 보유 중이면 정상(차가 굴러다니지 않는다). 개인이 타던 기간에
     # 비었으면 그때 난 사고가 기록에 없을 수 있다.
@@ -714,6 +847,67 @@ def judge_value(row: dict) -> dict:
     return row
 
 
+def add_listing_signals(rows: list[dict]) -> None:
+    """조회수·찜·보유기간으로 '시장이 이 매물을 어떻게 보고 있는가' 를 읽는다.
+
+    조회수를 그대로 쓰면 안 된다. 오래 걸린 매물은 가만히 있어도 조회수가
+    쌓이기 때문이다. 하루당 조회수로 보고, 표본 중앙값과 견준다.
+
+      많이 봤는데 안 팔림   -> 주의. 사람들이 보고 나서 지나쳤다
+      적게 봤는데 안 팔림   -> 노출 부족. 오히려 기회일 수 있다
+      찜 비율이 낮음        -> 보고 나서 실망했다는 뜻
+    """
+    S = getattr(config, "LISTING_SIGNAL", {})
+    rates, ratios = [], []
+    for r in rows:
+        v = to_int(r.get("view_count"))
+        d = to_int(r.get("days_on_market"))
+        sub = to_int(r.get("subscribe_count"))
+        if v is not None and d is not None and d >= 1:
+            rates.append(v / d)
+        if v and sub is not None and v >= S.get("min_views_for_interest", 200)                 and d is not None and d >= S.get("min_days_for_interest", 7):
+            ratios.append(sub / v)
+    med_rate = float(np.median(rates)) if rates else None
+    med_ratio = float(np.median(ratios)) if ratios else None
+
+    for r in rows:
+        r["view_per_day"] = ""
+        r["listing_signal"] = ""
+        r["listing_signal_note"] = ""
+        v = to_int(r.get("view_count"))
+        d = to_int(r.get("days_on_market"))
+        sub = to_int(r.get("subscribe_count"))
+        if v is None or d is None or d < 1 or not med_rate:
+            continue
+        rate = v / d
+        r["view_per_day"] = round(rate, 1)
+        stale = d >= S.get("stale_days", 30)
+
+        sig, note = "", ""
+        if stale and rate >= med_rate * S.get("hot_views_ratio", 1.5):
+            sig = "주의 — 많이 봤는데 안 팔림"
+            note = (f"하루 {rate:.0f}회 조회(중앙값 {med_rate:.0f}회)로 "
+                    f"{d}일째입니다. 많은 사람이 보고 지나쳤다는 뜻이라, "
+                    f"화면에 안 보이는 이유가 있을 수 있습니다. 실차 확인이 특히 중요합니다.")
+        elif stale and rate <= med_rate * S.get("cold_views_ratio", 0.6):
+            sig = "기회 — 노출 부족"
+            note = (f"하루 {rate:.0f}회 조회(중앙값 {med_rate:.0f}회)로 "
+                    f"{d}일째입니다. 사람들이 본 뒤 지나친 게 아니라 "
+                    f"아예 못 본 쪽에 가깝습니다.")
+        if med_ratio and v >= S.get("min_views_for_interest", 200)                 and sub is not None and d >= S.get("min_days_for_interest", 7):
+            ratio = sub / v
+            if ratio <= med_ratio * S.get("low_interest_ratio", 0.5):
+                extra = (f"조회 {v:,}회에 찜 {sub}개(비율 {ratio*100:.2f}%, "
+                         f"중앙값 {med_ratio*100:.2f}%) — 보고 나서 관심을 접은 "
+                         f"사람이 많다는 신호입니다.")
+                if sig:
+                    note += " " + extra
+                else:
+                    sig, note = "주의 — 보고 실망", extra
+        r["listing_signal"] = sig
+        r["listing_signal_note"] = note
+
+
 def build_alerts(ranked: list[dict], diff: dict | None) -> dict:
     """매주 볼 것만 추린다.
 
@@ -811,6 +1005,9 @@ def fit_baseline(rows: list[dict], key: str, label: str) -> MarketModel:
     # -0.065%p/1000km 였는데, 전체 54대로 그리면 -0.104%p 로 60% 커졌다.
     used = clean if use_clean else rows
     m.km_coverage_note = _km_coverage_warning(used, rows)
+    # 트림 편차는 '기준선을 그린 그 표본' 에서 잰다. 사고차를 섞으면
+    # 사고가 많은 트림이 기피 트림으로 잘못 잡힌다.
+    measure_trim_offsets(m, used)
     return m
 
 
@@ -881,7 +1078,8 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
     km = to_int(row.get("mileage_km"))
 
     # --- 시세 잔차 ---
-    pred = market.predict(age, km, to_float(row.get("origin_price_manwon")))
+    pred = market.predict(age, km, to_float(row.get("origin_price_manwon")),
+                          trim=row.get("trim"))
     if pred and price:
         row["predicted_price_manwon"] = round(pred, 1)
         row["residual_manwon"] = round(price - pred, 1)      # 음수 = 시세보다 쌈
@@ -1087,6 +1285,8 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
     # --- 적정가 환산 (주 판단 지표) ---
     fp = compute_fair_price(row, market)
     row["baseline_manwon"] = fp.get("baseline_manwon", "")
+    row["trim_offset_manwon"] = fp.get("trim_offset_manwon", "")
+    row["trim_key"] = normalize_trim(row.get("trim"))
     row["fair_price_manwon"] = fp.get("fair_price_manwon", "")
     row["value_gap_manwon"] = fp.get("value_gap_manwon", "")
     row["value_gap_pct"] = fp.get("value_gap_pct", "")

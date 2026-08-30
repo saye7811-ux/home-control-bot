@@ -44,6 +44,9 @@ SCORED_FIELDS = [
     "value_gap_pct", "value_gap_sigma", "sigma_manwon",
     "value_verdict", "value_verdict_note", "discount_priced_in",
     "discount_extra", "discount_extra_manwon", "discount_unexplained_manwon",
+    "trim_key", "trim_offset_manwon", "battery_maker", "battery_risk",
+    "battery_note", "view_count", "subscribe_count", "view_per_day",
+    "listing_signal", "listing_signal_note",
     "discount_notes", "insurance_gap_dealer", "insurance_gap_personal",
     "insurance_gap_unknown", "first_advertised",
     "days_on_market", "days_on_market_basis", "first_seen", "last_seen",
@@ -135,6 +138,19 @@ def print_market_summary(market, rows) -> None:
     else:
         print("  시세선    표본 5건 미만 — 중앙값 기준 비교로 대체")
 
+    stats = getattr(market, "trim_stats", None) or []
+    if stats:
+        print("  트림 편차  (기준선 표본에서 실측 — 계수를 사람이 정하지 않음)")
+        print(f"    {'트림':12}{'n':>4}{'편차':>10}{'t':>7}  판정")
+        for st in stats:
+            t = st["t"]
+            mark = "반영" if st["applied"] else "  - "
+            print(f"    {st['trim']:12}{st['n']:>4}{st['mean_pct']:>+9.2f}%p"
+                  f"{(t if t is not None else float('nan')):>7.2f}  {mark} {st['why']}")
+        applied = [st for st in stats if st["applied"]]
+        if applied:
+            print("    -> 반영된 트림은 기준 시세가 그만큼 조정됩니다. "
+                  "구조적으로 기피되는 트림이 매주 '저평가' 로 뜨는 것을 막습니다.")
     if getattr(market, "km_coverage_note", ""):
         print(f"  ! 주행거리 범위  {market.km_coverage_note}")
     if market.n_dropped:
@@ -459,6 +475,15 @@ def print_top(rows, n, sort_label: str = "") -> None:
             if piece and "=" in piece:
                 lab, amt = piece.rsplit("=", 1)
                 print(f"          싼 이유  {lab:<50} {amt:>10}")
+        if r.get("battery_maker") or r.get("battery_risk") == "unknown":
+            risk = r.get("battery_risk")
+            tag = {"high": "!! 기피", "low": "선호", "normal": "보통",
+                   "unknown": "확인 필요"}.get(risk, "")
+            print(f"       배터리  {r.get('battery_maker') or '미확인'} [{tag}]"
+                  + (f" — {r['battery_note']}" if r.get("battery_note") else ""))
+        if r.get("listing_signal"):
+            print(f"       매물반응 {r['listing_signal']}")
+            print(f"          {r.get('listing_signal_note','')}")
         if r.get("discount_notes"):
             for n in str(r["discount_notes"]).split(" ; "):
                 if n:
@@ -607,6 +632,8 @@ def main() -> int:
 
     # 저평가가 '이유 있는 할인' 인지 '설명되지 않는 기회' 인지 가른다.
     # 이 도구의 핵심 질문이다 — 싼 차가 아니라 '이유 없이 싼 차' 를 찾는다.
+    # 조회수·찜·보유기간 신호는 표본 전체를 봐야 중앙값을 낼 수 있다.
+    scoring.add_listing_signals(scored_all)
     for r in scored_all:
         scoring.judge_value(r)
 

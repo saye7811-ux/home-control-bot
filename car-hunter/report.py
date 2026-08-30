@@ -158,6 +158,23 @@ def _market_card(market, rows: list[dict]) -> str:
                   '<b>잔존율(가격÷신차가)</b>을 회귀했습니다. 적정가는 '
                   '잔존율 × 그 매물의 신차가입니다 — 비싼 트림이 '
                   '&lsquo;고평가&rsquo;로 잘못 잡히는 것을 막습니다.</p>')
+    stats = getattr(market, "trim_stats", None) or []
+    if stats:
+        rowsh = "".join(
+            f'<tr class="{"on" if st["applied"] else ""}">'
+            f'<td>{_e(st["trim"])}</td><td class="num">{st["n"]}</td>'
+            f'<td class="num">{st["mean_pct"]:+.2f}%p</td>'
+            f'<td class="num">{(f"{st['t']:.2f}" if st["t"] is not None else "-")}</td>'
+            f'<td>{"반영" if st["applied"] else "-"}</td>'
+            f'<td class="muted">{_e(st["why"])}</td></tr>' for st in stats)
+        extra += (
+            '<p class="muted"><b>트림별 구조적 편차</b> — 같은 신차가라도 시장이 '
+            '특정 트림을 기피하면 잔존율이 계속 낮게 형성됩니다. 계수를 사람이 '
+            '정하지 않고, 기준선을 그린 표본에서 실측해 통계적으로 유의할 때만 '
+            '반영합니다.</p>'
+            '<table class="trimtbl"><thead><tr><th>트림</th><th class="num">n</th>'
+            '<th class="num">편차</th><th class="num">t</th><th>판정</th><th>근거</th>'
+            f'</tr></thead><tbody>{rowsh}</tbody></table>')
     if market.n_dropped:
         extra += f'<p class="muted">이상치 제외: {_e(market.dropped_note)}</p>'
     if market.n_lease:
@@ -257,6 +274,25 @@ def _verdict_html(r: dict) -> str:
     if loan:
         out.append(f'<div class="flag-check">저당 설정 있음 ({loan}건) '
                    f'— 계약 전 말소 확인 필수</div>')
+
+    # 배터리 제조사 — 트림명으로 판정. 시세에 큰 영향을 주는 항목이다.
+    risk = r.get("battery_risk") or ""
+    maker = r.get("battery_maker") or ""
+    if risk == "high":
+        out.append(f'<div class="flag-batt">배터리 {_e(maker)} — 시장 기피 트림</div>'
+                   f'<div class="muted small">{_e(r.get("battery_note") or "")}</div>')
+    elif risk == "unknown":
+        out.append('<div class="muted small">배터리 제조사 미확인 — '
+                   '헤이딜러 출고 기록에서 확인 필요</div>')
+    elif maker:
+        out.append(f'<div class="muted small">배터리 {_e(maker)}</div>')
+
+    # 매물 반응 신호
+    sig = r.get("listing_signal") or ""
+    if sig:
+        cls = "sig-warn" if sig.startswith("주의") else "sig-good"
+        out.append(f'<div class="{cls}">{_e(sig)}</div>'
+                   f'<div class="muted small">{_e(r.get("listing_signal_note") or "")}</div>')
     return "".join(out)
 
 
@@ -521,6 +557,14 @@ border:2px solid var(--plate-fg)}
 .alist{margin:8px 0 0;padding-left:18px}
 .alist li{margin:6px 0;line-height:1.5}
 tr.row-photo td{background:rgba(124,45,18,.06)}
+.flag-batt{margin-top:6px;padding:5px 9px;border-radius:6px;font-size:12px;
+           font-weight:800;background:#991b1b;color:#fff}
+.sig-warn{margin-top:6px;font-size:12px;font-weight:800;color:#b45309}
+.sig-good{margin-top:6px;font-size:12px;font-weight:800;color:var(--good)}
+.trimtbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.trimtbl th,.trimtbl td{padding:3px 6px;border-bottom:1px solid var(--border)}
+.trimtbl td.num{text-align:right}
+.trimtbl tr.on td{font-weight:800}
 .bdcell{min-width:250px}
 table.bd{width:100%;border-collapse:collapse;font-size:11.5px;min-width:auto}
 table.bd td{padding:2px 4px;border:0;vertical-align:top}
