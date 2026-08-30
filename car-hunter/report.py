@@ -310,6 +310,23 @@ VERDICT_CLASS = {
 }
 
 
+def _risk_html(r: dict) -> str:
+    """'싸다' 옆에 '왜 위험한가'.
+
+    비율(%)로 줄을 세우면 값이 싼 차가 위로 오는데, 값이 싼 데는 대개
+    이유가 있다. 이 칸이 없으면 % 만 보고 판단하게 된다.
+    """
+    import scoring
+    fs = scoring.risk_flags(r)
+    if not fs:
+        return '<span class="riskok">특이사항 없음</span>'
+    out = []
+    for f in fs:
+        out.append(f'<div class="risk r-{f["level"]}">{_e(f["label"])}'
+                   f'<span>{_e(f["detail"])}</span></div>')
+    return "".join(out)
+
+
 def _verdict_html(r: dict) -> str:
     """'왜 싼가' — 이 도구의 핵심 판정.
 
@@ -597,8 +614,14 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         photo_flag = ('<div class="flag-photo">성능기록부 사진뿐 — 원본 요구 필수</div>'
                       if photo_only else "")
 
+        def _sv(k):
+            v = to_float(r.get(k))
+            return v if v is not None else -9e9
+        _attrs = (f' data-pct="{_sv("value_gap_pct"):.4f}"'
+                  f' data-amount="{_sv("value_gap_manwon"):.1f}"'
+                  f' data-sigma="{_sv("value_gap_sigma"):.4f}"')
         out.append(f"""
-      <tr{row_cls}>
+      <tr{row_cls}{_attrs}>
         <td class="rank">{i}</td>
         <td>
           <div class="plate">{plate_html}</div>
@@ -616,6 +639,7 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         <td class="num">{_e(r.get('battery_remaining_pct'))}%
           <div class="muted small">{_e(r.get('battery_binding'))}</div></td>
         <td class="num">{_gap_cell(r)}</td>
+        <td class="riskcell">{_risk_html(r)}</td>
         <td class="vcell">{_verdict_html(r)}</td>
         <td class="bdcell">{_breakdown_html(r)}</td>
         <td class="reasons">
@@ -739,6 +763,18 @@ tr.row-photo td{background:rgba(124,45,18,.06)}
 .vinok span{font-weight:700;opacity:.9}
 .vinok.none{background:var(--border);color:var(--muted)}
 .vintodo{margin-top:7px;font-size:12px;font-weight:800;color:#b45309}
+.riskcell{max-width:190px}
+.risk{margin:3px 0;padding:3px 7px;border-radius:5px;font-size:11px;font-weight:800}
+.risk span{display:block;font-weight:500;opacity:.85;font-size:10px;margin-top:1px}
+.risk.r-bad{background:rgba(220,38,38,.15);color:#dc2626}
+.risk.r-warn{background:rgba(180,83,9,.15);color:#b45309}
+.riskok{font-size:11px;color:var(--muted)}
+.brisk{margin-top:3px;font-size:12px;font-weight:800;color:#b45309}
+.sortbar{display:flex;gap:8px;align-items:center;margin:10px 0;font-size:13px}
+.sortbtn{font-size:12px;font-weight:700;padding:4px 11px;border-radius:6px;
+         border:1px solid var(--border);background:transparent;color:var(--fg);
+         cursor:pointer}
+.sortbtn.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .legend{display:flex;flex-wrap:wrap;gap:10px 16px;margin:8px 0 4px;
         font-size:12px;color:var(--muted)}
 .legend span{display:flex;align-items:center;gap:5px}
@@ -892,6 +928,8 @@ def _brief_section(brief: dict | None) -> str:
             f'{_e(p["trim"])}</span> — {p["price"]:,.0f}만원, '
             f'적정가 대비 <b>{p["gap"]:+,.0f}만원</b> '
             f'({p["pct"]:+.1f}%, {p["sigma"]:+.2f}&sigma;) · {_e(p["verdict"])}'
+            + (f'<div class="brisk">주의: {_e(p["risk"])}</div>'
+               if p.get("risk") else "")
             + (f'<div class="muted small">참고: {_e(p["why"])}</div>'
                if p.get("why") else "")
             + '</li>')
@@ -1073,12 +1111,21 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
     <code>config.py</code> 의 <code>PRICING</code> 에서 조정할 수 있습니다.<br>
     기준 시세 자체가 사고차를 포함한 시장 평균이라, 사고 할인을 다시 빼면 같은
     흠결을 일부 중복해 반영하는 셈입니다. 순위를 가르는 용도로만 쓰세요.</div>
+  <div class="sortbar">
+    <span class="muted">정렬:</span>
+    <button type="button" class="sortbtn on" data-sort="pct">비율 (%)</button>
+    <button type="button" class="sortbtn" data-sort="amount">절대금액 (만원)</button>
+    <button type="button" class="sortbtn" data-sort="sigma">유의성 (&sigma;)</button>
+    <span class="muted small">기본은 비율입니다. 순위 번호는 정렬과 함께 다시 매겨집니다.</span>
+  </div>
   <div class="tablewrap">
-    <table>
+    <table id="ranktbl">
       <thead><tr>
         <th>#</th><th>차량번호 / 모델</th><th class="num">가격</th>
         <th class="num">연식 / 주행</th><th class="num">연평균</th>
-        <th class="num">배터리 보증</th><th class="num">적정가 대비<br><span class="small">만원 / % / &sigma;</span></th>
+        <th class="num">배터리 보증</th>
+        <th class="num sortcol" data-key="pct">적정가 대비<br><span class="small">만원 / % / &sigma;</span></th>
+        <th>주의 지표</th>
         <th>왜 싼가 (판정)</th>
         <th>적정가 산출 내역</th><th>추천 / 주의 사유</th><th>링크</th>
       </tr></thead>
@@ -1118,6 +1165,30 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
       try {{ document.execCommand('copy'); }} catch (err) {{}}
       document.body.removeChild(t); done();
     }}
+  }});
+
+  // 순위표 정렬 — 비율 / 절대금액 / 유의성
+  // 세 지표가 서로 다른 매물을 위로 올린다. 비싼 차는 절대금액이 크고
+  // 싼 차는 비율이 크다. 눌러 가며 보라고 버튼으로 뒀다.
+  document.addEventListener('click', function (e) {{
+    var btn = e.target.closest && e.target.closest('.sortbtn');
+    if (!btn) return;
+    var key = btn.dataset.sort;
+    var tbl = document.getElementById('ranktbl');
+    if (!tbl) return;
+    var body = tbl.tBodies[0];
+    var rows = Array.prototype.slice.call(body.rows);
+    rows.sort(function (a, b) {{
+      return parseFloat(b.dataset[key] || -1e9) - parseFloat(a.dataset[key] || -1e9);
+    }});
+    rows.forEach(function (row, i) {{
+      body.appendChild(row);
+      var c = row.querySelector('td.rank');
+      if (c) c.textContent = String(i + 1);
+    }});
+    document.querySelectorAll('.sortbtn').forEach(function (b) {{
+      b.classList.toggle('on', b === btn);
+    }});
   }});
   </script>
 </div>"""

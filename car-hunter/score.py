@@ -296,6 +296,8 @@ def print_brief(brief: dict) -> None:
               f"{p_['price']:,.0f}만원")
         print(f"      적정가 대비 {p_['gap']:+,.0f}만원 ({p_['pct']:+.1f}%, "
               f"{sg:+.2f}σ) — {p_['verdict']}")
+        if p_.get("risk"):
+            print(f"      주의: {p_['risk']}")
         if p_["why"]:
             print(f"      참고: {p_['why']}")
         if p_["url"]:
@@ -488,6 +490,12 @@ def print_top(rows, n, sort_label: str = "") -> None:
                 print("       ! 시세선 오차 범위 안입니다 — 통계적으로 "
                       "'싸다' 고 보기 어렵습니다")
 
+        risks = scoring.risk_flags(r)
+        if risks:
+            for f in risks[:4]:
+                mark = "!!" if f["level"] == "bad" else " !"
+                print(f"       {mark} 주의: {f['label']} — {f['detail']}")
+
         verdict = r.get("value_verdict") or ""
         if verdict:
             mark = {"설명되지 않는 저평가": ">>", "일부 설명됨": " -",
@@ -553,9 +561,9 @@ def print_top(rows, n, sort_label: str = "") -> None:
 def main() -> int:
     p = argparse.ArgumentParser(description="가성비 스코어링 (2단계)")
     p.add_argument("--top", type=int, default=config.TOP_N)
-    p.add_argument("--sort", choices=["sigma", "amount", "pct"], default="sigma",
-                   help="순위 기준. sigma=통계적 유의성(기본), "
-                        "amount=절대금액(만원), pct=비율(%%)")
+    p.add_argument("--sort", choices=["pct", "amount", "sigma"], default="pct",
+                   help="순위 기준. pct=비율(기본), amount=절대금액(만원), "
+                        "sigma=통계적 유의성")
     p.add_argument("--all-trims", action="store_true",
                    help="구매 후보 트림 필터를 끄고 전 트림을 순위에 넣는다 "
                         "(기본은 config.BUY_CANDIDATE_TRIMS 만)")
@@ -670,9 +678,9 @@ def main() -> int:
     # 저평가를 세 가지로 잰다. 기본은 σ — 시세선 자체의 오차로 나눈 값이라
     # 2억짜리와 5천짜리를 같은 자로 비교할 수 있다.
     SORT_KEYS = {
-        "sigma": ("value_gap_sigma", "통계적 유의성(σ)"),
+        "pct": ("value_gap_pct", "비율(%) — 적정가 대비 몇 % 싼가"),
         "amount": ("value_gap_manwon", "절대금액(만원)"),
-        "pct": ("value_gap_pct", "비율(%)"),
+        "sigma": ("value_gap_sigma", "통계적 유의성(σ)"),
     }
     sort_field, sort_label = SORT_KEYS[args.sort]
 

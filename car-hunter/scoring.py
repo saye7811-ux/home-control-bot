@@ -1080,6 +1080,59 @@ def add_listing_signals(rows: list[dict]) -> None:
         r["listing_signal_note"] = note
 
 
+def risk_flags(row: dict) -> list[dict]:
+    """이 매물의 주의 지표. 심한 것부터.
+
+    비율(%)로 줄을 세우면 값이 싼 차가 위로 오는데, 값이 싼 데는 대개
+    이유가 있다. '+6.0% 저평가' 옆에 '11만km 과주행 · 배터리 보증 30%'
+    가 같이 보여야 판단을 그르치지 않는다.
+    """
+    R = getattr(config, "RISK_FLAGS", {})
+    out = []
+
+    frac = to_float(row.get("battery_remaining_pct"))
+    if frac is not None:
+        kl = to_int(row.get("battery_km_left"))
+        left = f"{kl:,}km 남음" if kl is not None else ""
+        if frac <= 0:
+            out.append({"level": "bad", "label": "배터리 보증 소멸",
+                        "detail": "8년 또는 16만km 초과 — 교체 위험이 전액 자기 부담"})
+        elif frac < R.get("battery_bad_pct", 30.0):
+            out.append({"level": "bad", "label": f"배터리 보증 {frac:.0f}%",
+                        "detail": f"잔여 30% 미만 · {left}"})
+        elif frac < R.get("battery_warn_pct", 50.0):
+            out.append({"level": "warn", "label": f"배터리 보증 {frac:.0f}%",
+                        "detail": f"잔여 50% 미만 · {left}"})
+
+    ann = to_int(row.get("annual_km"))
+    if ann is not None:
+        if ann >= R.get("annual_km_bad", 30_000):
+            out.append({"level": "bad", "label": f"과주행 연 {ann/10000:.1f}만km",
+                        "detail": "연평균 3만km 초과"})
+        elif ann >= R.get("annual_km_warn", 25_000):
+            out.append({"level": "warn", "label": f"과주행 연 {ann/10000:.1f}만km",
+                        "detail": "연평균 2.5만km 초과"})
+
+    km = to_int(row.get("mileage_km"))
+    if km is not None and km >= R.get("mileage_bad_km", 100_000):
+        out.append({"level": "bad", "label": f"주행 {km/10000:.0f}만km",
+                    "detail": "총 주행거리가 많습니다"})
+
+    if _truthy(row.get("page_is_image")):
+        out.append({"level": "warn", "label": "성능기록부 사진뿐",
+                    "detail": "수리 부위·고전원전기장치를 확인할 수 없음"})
+
+    order = {"bad": 0, "warn": 1}
+    out.sort(key=lambda f: order.get(f["level"], 2))
+    return out
+
+
+def risk_summary(row: dict, limit: int = 3) -> str:
+    """주의 지표를 한 줄로."""
+    fs = risk_flags(row)[:limit]
+    return " · ".join(f["label"] for f in fs)
+
+
 def weekly_brief(alerts: dict, diff: dict | None, ranked: list[dict]) -> dict:
     """맨 위에 놓을 한 문단. 매주 여기만 읽어도 되게 만든다.
 
@@ -1113,6 +1166,8 @@ def weekly_brief(alerts: dict, diff: dict | None, ranked: list[dict]) -> dict:
             "gap": gap, "pct": pct, "sigma": sg,
             "verdict": r.get("value_verdict", ""),
             "why": " · ".join(why),
+            "risk": risk_summary(r),
+            "risks": risk_flags(r)[:3],
             "url": r.get("listing_url", ""),
         })
 
