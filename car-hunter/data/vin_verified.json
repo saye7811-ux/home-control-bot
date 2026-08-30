@@ -1,0 +1,52 @@
+{
+  "_설명": [
+    "VIN 디코더에서 직접 확인한 출고 옵션을 적어 두는 파일입니다.",
+    "BMW 는 bimmer.work, 벤츠는 mb.vin 에서 차대번호로 조회하세요.",
+    "BMW: 2VR = 에어서스펜션, 2VH = 후륜조향(인테그럴 액티브 스티어링)",
+    "벤츠: 489 AIRMATIC = 에어서스펜션, 리어 액슬 스티어링은 별도 코드",
+    "확인해서 '없음' 이면 false 로 적으세요. 감점하지는 않지만",
+    "'확인했는데 없음' 과 '아직 확인 안 함' 을 구분해서 표시합니다.",
+    "두 항목 중 하나라도 비워 두면(null) 미확인으로 봅니다.",
+    "이 _설명 항목은 무시됩니다."
+  ],
+  "354주4191": {
+    "air_suspension": true,
+    "rear_steering": true,
+    "vin": "WBY21CF09PCL53939",
+    "verified_at": "2026-08-30",
+    "source": "bimmer.work",
+    "note": "2VR 2-axle Air Suspension / 2VH Integral Active Steering. 헤이딜러에서 '2챔버 에어서스펜션 + 인테그랄 액티브 스티어링' 으로 교차 확인"
+  },
+  "64조1540": {
+    "air_suspension": true,
+    "rear_steering": false,
+    "vin": "W1NGM1CB1SA058856",
+    "verified_at": "2026-08-30",
+    "source": "mb.vin",
+    "note": "489 AIRMATIC DUAL CONTROL / AIR SUSPENSION SEMI-ACTIVE 있음. 리어액슬 스티어링 없음"
+  },
+  "31너3783": {
+    "air_suspension": true,
+    "rear_steering": false,
+    "vin": "W1NGM1CB1PA012225",
+    "verified_at": "2026-08-30",
+    "source": "mb.vin",
+    "note": "489 AIRMATIC 있음. 리어액슬 스티어링 없음"
+  },
+  "55구4190": {
+    "air_suspension": true,
+    "rear_steering": true,
+    "vin": "WBY21CF04RCS71460",
+    "verified_at": "2026-08-30",
+    "source": "bimmer.work",
+    "note": "2VR 2-axle Air Suspension / 2VH Integral Active Steering 모두 있음"
+  },
+  "17러5772": {
+    "air_suspension": false,
+    "rear_steering": false,
+    "vin": "WBY21CF07PCM62674",
+    "verified_at": "2026-08-30",
+    "source": "bimmer.work",
+    "note": "2VR/2VH 없음. 2VB·2VC 는 있으나 해당 없음 — 전체 옵션 목록 확인함"
+  }
+}

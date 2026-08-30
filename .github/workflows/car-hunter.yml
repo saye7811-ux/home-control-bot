@@ -1,0 +1,102 @@
+# ---------------------------------------------------------------------------
+#  car-hunter — 매일 클라우드에서 수집·채점하고 리포트를 배포한다
+# ---------------------------------------------------------------------------
+#  PC 가 꺼져 있어도 GitHub 서버에서 돌아간다. 끝나면 GitHub Pages 에
+#  report.html 이 올라가므로 폰에서 주소 하나만 열면 최신 결과가 보인다.
+#
+#  수동 실행: 저장소 > Actions > car-hunter > Run workflow
+# ---------------------------------------------------------------------------
+name: car-hunter
+
+on:
+  schedule:
+    # UTC 기준이다. 21:00 UTC = 한국 시간 06:00 (다음날 아침)
+    - cron: "0 21 * * *"
+  workflow_dispatch:        # 버튼으로 즉시 실행할 수 있게
+
+permissions:
+  contents: write           # 수집 결과를 저장소에 되돌려 커밋
+  pages: write              # GitHub Pages 배포
+  id-token: write
+
+# 앞 실행이 아직 돌고 있으면 겹치지 않게 한다.
+# 취소하지 않고 기다리는 이유: 중간에 끊기면 data 가 어중간해진다.
+concurrency:
+  group: car-hunter
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: car-hunter
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      # 엔카 원본 응답 캐시(details.json, 5MB 대)는 저장소에 넣지 않는다.
+      # 매일 커밋하면 저장소가 1년에 수 GB 로 불어나기 때문이다.
+      # 캐시가 없거나 만료되면 그날 하루 전량 수집으로 자동 복구된다.
+      - name: 응답 캐시 복원
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: car-hunter/data/details.json
+          key: encar-details-${{ github.run_id }}
+          restore-keys: |
+            encar-details-
+
+      - name: 수집 (증분)
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: python collect.py
+
+      - name: 채점 + 리포트 생성
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: python score.py --top 20
+
+      - name: 수집 결과를 저장소에 반영
+        run: |
+          git config user.name  "car-hunter bot"
+          git config user.email "actions@github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "바뀐 내용이 없습니다."
+          else
+            git commit -m "car-hunter: $(date -u +%Y-%m-%d) 자동 수집"
+            # 사람이 그 사이 push 했을 수 있으니 rebase 후 올린다
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: 배포할 파일 모으기
+        run: |
+          mkdir -p ../_site
+          cp report.html ../_site/index.html
+          # 검색엔진에 걸리지 않게 한다 (매물 정보라 공개 색인은 원치 않음)
+          printf 'User-agent: *\nDisallow: /\n' > ../_site/robots.txt
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: collect
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

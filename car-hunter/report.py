@@ -50,6 +50,20 @@ def _e(v) -> str:
 # ---------------------------------------------------------------------------
 # SVG 산점도
 # ---------------------------------------------------------------------------
+def mask_plate(plate: str) -> str:
+    """공개 배포용으로 차량번호 뒷자리를 가린다.
+
+    '354주4191' -> '354주****'. 링크는 그대로라 눌러서 매물은 볼 수 있다.
+    끄고 켜는 것은 config.MASK_PLATES (또는 CARHUNTER_MASK_PLATES=1).
+    """
+    p = str(plate or "")
+    if not getattr(config, "MASK_PLATES", False) or len(p) < 4:
+        return p
+    import re as _re
+    m = _re.match(r"^(.*?)(\d{4})$", p)
+    return (m.group(1) + "****") if m else (p[:-4] + "****")
+
+
 def _truthy_cell(v) -> bool:
     return str(v).strip().lower() in ("true", "1", "y", "yes")
 
@@ -129,7 +143,7 @@ def _scatter_svg(rows: list[dict], market) -> str:
         sg = to_float(r.get("value_gap_sigma"))
         gap = to_float(r.get("value_gap_manwon"))
         pct = to_float(r.get("value_gap_pct"))
-        plate = r.get("plate_no") or r.get("vehicle_id") or "?"
+        plate = mask_plate(r.get("plate_no")) or r.get("vehicle_id") or "?"
         url = r.get("listing_url") or ""
         rank = to_int(r.get("rank"))
         in_rank = (not _truthy_cell(r.get("sample_only"))
@@ -501,7 +515,7 @@ def _breakdown_html(r: dict) -> str:
 def _rank_rows(rows: list[dict], stage: str) -> str:
     out = []
     for i, r in enumerate(rows, 1):
-        plate = r.get("plate_no") or "(차량번호 미확보)"
+        plate = mask_plate(r.get("plate_no")) or "(차량번호 미확보)"
         photo = r.get("photo_url") or ""
         url = r.get("listing_url") or ""
         plus = [s for s in (r.get("reasons_plus") or "").split(" ; ") if s]
@@ -841,6 +855,48 @@ padding-top:4px;border-top:1px dashed var(--bd)}
 ol.check{padding-left:20px}ol.check li{margin:10px 0}
 ol.check b{display:block}ol.check span{color:var(--muted);font-size:13px}
 footer{margin-top:40px;color:var(--muted);font-size:12px}
+
+/* ---- 폰 ----------------------------------------------------------------
+   맨 위 브리핑과 산점도는 폰에서 제대로 보여야 한다. 그 아래 큰 표는
+   열이 12개라 폰에 다 담을 수 없으므로, 판단에 꼭 필요한 열만 남긴다:
+   순위 · 차량번호 · 가격 · 적정가대비 · 주의지표 · 판정.
+   나머지(연식/주행·연평균·배터리·산출내역·사유·링크)는 숨긴다 —
+   차량번호 자체가 매물 링크라 '링크' 열이 없어도 이동할 수 있다.        */
+@media (max-width: 760px) {
+  .wrap{padding:14px 12px}
+  h1{font-size:20px}
+  h2{font-size:17px}
+  .brief{padding:14px 14px}
+  .brief h2{font-size:17px}
+  .brief-picks{padding-left:16px}
+  .grid{grid-template-columns:1fr}
+  .stats{grid-template-columns:1fr 1fr}
+  .legend{font-size:11px;gap:6px 10px}
+  .sortbar{flex-wrap:wrap;gap:6px}
+  .sortbar .small{width:100%}
+  table{font-size:12px}
+  th,td{padding:7px 6px}
+  .vcell,.riskcell{max-width:none}
+  /* 4 연식/주행 · 5 연평균 · 6 배터리 · 10 산출내역 · 11 사유 · 12 링크 */
+  #ranktbl th:nth-child(4),#ranktbl td:nth-child(4),
+  #ranktbl th:nth-child(5),#ranktbl td:nth-child(5),
+  #ranktbl th:nth-child(6),#ranktbl td:nth-child(6),
+  #ranktbl th:nth-child(10),#ranktbl td:nth-child(10),
+  #ranktbl th:nth-child(11),#ranktbl td:nth-child(11),
+  #ranktbl th:nth-child(12),#ranktbl td:nth-child(12){display:none}
+  .plate{font-size:14px}
+  .gap{font-size:16px}
+  .bd{font-size:11px}
+  .alert-card{padding:12px 13px}
+  .alist{padding-left:16px}
+  .vinrow{gap:4px}
+  .vinbtn{font-size:10px;padding:3px 6px}
+}
+@media (max-width: 420px) {
+  .stats{grid-template-columns:1fr}
+  /* 아주 좁으면 '왜 싼가' 판정 칸도 접는다 — 색과 주의 지표로 충분하다 */
+  #ranktbl th:nth-child(9),#ranktbl td:nth-child(9){display:none}
+}
 """
 
 
@@ -864,7 +920,7 @@ def _diff_section(diff: dict | None) -> str:
                 f'<tbody>{body}</tbody></table></div>')
 
     def _plate(r):
-        return _e(r.get("plate_no") or r.get("vehicle_id") or "?")
+        return _e(mask_plate(r.get("plate_no")) or r.get("vehicle_id") or "?")
 
     def _model(r):
         return _e(r.get("model_label") or "")
@@ -947,7 +1003,7 @@ def _brief_section(brief: dict | None) -> str:
     picks = ""
     for p in brief.get("picks", []):
         url = p.get("url") or ""
-        plate = _e(p["plate"])
+        plate = _e(mask_plate(p["plate"]))
         link = f'<a href="{_e(url)}" target="_blank">{plate}</a>' if url else plate
         picks += (
             f'<li><b>{link}</b> <span class="muted">{_e(p["model"])} '
@@ -984,9 +1040,9 @@ def _lookup_list_section(ranked: list[dict], n: int = 10) -> str:
     picks = [r for r in ranked if r.get("plate_no")][:n]
     if not picks:
         return ""
-    plates = " ".join(r["plate_no"] for r in picks)
+    plates = " ".join(mask_plate(r["plate_no"]) for r in picks)
     rows = "".join(
-        f'<tr><td><b>{_e(r["plate_no"])}</b></td>'
+        f'<tr><td><b>{_e(mask_plate(r["plate_no"]))}</b></td>'
         f'<td class="muted">{_e(r.get("model_label") or "")} '
         f'{_e(r.get("trim_key") or "")}</td>'
         f'<td class="num">{fmt_manwon(r.get("price_manwon"))}</td>'
@@ -1000,7 +1056,7 @@ def _lookup_list_section(ranked: list[dict], n: int = 10) -> str:
     <p class="muted">헤이딜러 <b>숨은이력찾기</b>는 약관상 자동 조회가 금지돼 있어
       직접 넣으셔야 합니다. 아래 번호를 한 줄로 복사해 쓰세요.
       결과 화면은 <code>hidden/</code> 폴더에 차량번호를 파일명으로 저장하면
-      자동으로 매칭됩니다 (예: <code>hidden/{_e(picks[0]["plate_no"])}.png</code>).</p>
+      자동으로 매칭됩니다 (예: <code>hidden/{_e(mask_plate(picks[0]["plate_no"]))}.png</code>).</p>
     <pre class="plates">{_e(plates)}</pre>
     <p class="muted">지금 헤이딜러에서 확인할 것은 <b>에어서스·후륜조향(출고 옵션)</b>과
       <b>정비 이력</b> 둘뿐입니다. 보험 수리이력은 엔카에서 건별 금액까지
@@ -1043,7 +1099,7 @@ def _alerts_section(alerts: dict | None) -> str:
             if dom is not None:
                 bits.append(f"보유 {dom}일")
             url = r.get("listing_url") or ""
-            plate = _e(r.get("plate_no") or r.get("vehicle_id") or "?")
+            plate = _e(mask_plate(r.get("plate_no")) or r.get("vehicle_id") or "?")
             link = f'<a href="{_e(url)}" target="_blank">{plate}</a>' if url else plate
             items.append(
                 f'<li><b>{link}</b> <span class="muted">{_e(r.get("model_label") or "")}</span> '
@@ -1105,7 +1161,11 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
         note_html = ('<div class="banner">' +
                      "<br>".join(_e(n) for n in notes) + "</div>")
 
-    return f"""<title>car-hunter 리포트</title>
+    return f"""<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="color-scheme" content="light dark">
+<title>car-hunter 리포트</title>
 <style>{CSS}</style>
 <div class="wrap">
   <h1>중고 전기차 매물 분석 리포트</h1>

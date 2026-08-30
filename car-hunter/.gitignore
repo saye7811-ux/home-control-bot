@@ -1,9 +1,21 @@
-# 수집/분석 산출물 (개인 데이터)
-data/*.csv
-data/*.json
-data/*.html
+# ---------------------------------------------------------------------------
+# 무엇을 저장소에 넣고 무엇을 뺄 것인가
+# ---------------------------------------------------------------------------
+# GitHub Actions 가 매일 클라우드에서 돌기 때문에, 증분 수집에 필요한
+# 상태는 저장소에 남아 있어야 한다. 다만 전부 넣으면 안 된다.
+#
+#   넣는 것 : listings.csv, scored.csv, market.json, history/, vin_verified.json
+#             -> 작고, 다음 실행이 '지난주 대비' 를 계산하는 데 꼭 필요하다
+#   빼는 것 : details.json (5MB 대. 엔카 원본 응답 캐시)
+#             -> 매일 커밋하면 저장소가 1년에 수 GB 로 불어난다.
+#                Actions 캐시에 넣는다. 캐시가 날아가면 그날 하루
+#                전량 수집으로 자동 복구된다 (느릴 뿐 틀리지 않는다).
+#   빼는 것 : raw_* (진단용 원본 덤프), 헤이딜러 스크린샷(개인정보)
+
+data/details.json
+data/raw_*.json
+data/raw_*.html
 data/BLOCKED.txt
-report.html
 
 # 헤이딜러 스크린샷 및 판독 결과 (개인 차량 정보)
 hidden/*.png
@@ -13,6 +25,10 @@ hidden/*.webp
 hidden/*.heic
 hidden/extracted.json
 
+# 리포트는 Actions 가 GitHub Pages 로 배포한다. 저장소에는 두지 않는다.
+report.html
+
 __pycache__/
 *.pyc
 .venv/
+logs/
