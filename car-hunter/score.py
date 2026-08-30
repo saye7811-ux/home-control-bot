@@ -282,6 +282,25 @@ def print_pooling(pool: dict, per_model: list) -> None:
     print(f"   판단({pool['mode']}): {pool['verdict']}")
 
 
+def print_brief(brief: dict) -> None:
+    """맨 위 한 문단. 매주 여기만 읽어도 되게."""
+    print(f"\n{_hr('━')}")
+    print(f"  이번 주 결론:  {brief['headline']}")
+    print(_hr('━'))
+    for p_ in brief["picks"]:
+        sg = p_["sigma"]
+        print(f"   {p_['plate']}  {p_['model']} {p_['trim']}  "
+              f"{p_['price']:,.0f}만원")
+        print(f"      적정가 대비 {p_['gap']:+,.0f}만원 ({p_['pct']:+.1f}%, "
+              f"{sg:+.2f}σ) — {p_['verdict']}")
+        if p_["why"]:
+            print(f"      참고: {p_['why']}")
+        if p_["url"]:
+            print(f"      {p_['url']}")
+    print(f"\n   지난주 대비:  " + " / ".join(brief["changes"]))
+    print("   (아래는 상세입니다. 급하지 않으면 여기까지만 보셔도 됩니다.)")
+
+
 def print_alerts(alerts: dict) -> None:
     """이번 주에 손댈 것만. 없으면 한 줄로 끝낸다."""
     A = config.ALERTS
@@ -661,6 +680,8 @@ def main() -> int:
 
     diff = history.diff_runs(scored_all)
     alerts = scoring.build_alerts(ranked, diff)
+    brief = scoring.weekly_brief(alerts, diff, ranked)
+    print_brief(brief)
     print_alerts(alerts)
     print_run_diff(diff)
     print_market_trend()
@@ -670,7 +691,8 @@ def main() -> int:
     if not args.no_report:
         html = report_mod.build_html(
             models, ranked[:max(args.top, 20)], stage="stage2",
-            diff=diff, trend=history.market_trend(), alerts=alerts)
+            diff=diff, trend=history.market_trend(), alerts=alerts,
+            brief=brief)
         with open(REPORT_HTML, "w", encoding="utf-8") as f:
             f.write(html)
         log(f"저장: {REPORT_HTML}")

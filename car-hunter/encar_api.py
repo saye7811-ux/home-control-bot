@@ -3198,6 +3198,17 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "vehicle_id": vid,
         "plate_no": plate or "",
         "origin_price_manwon": origin_price if origin_price is not None else "",
+        # 매물 품질 신호 — 사진 수가 적거나 하부 사진이 없으면 살 사람이
+        # 확인할 것이 적다. '왜 안 팔리나' 를 좁히는 데 쓴다.
+        "photo_count": len(pick(detail or {}, "photos") or []),
+        "has_underbody_photo": bool(pick(detail or {},
+                                         "advertisement.hasUnderBodyPhoto")),
+        "description_len": len(str(pick(detail or {}, "contents") or "")),
+        # 압류·저당 — 보험이력의 loan 보다 이쪽이 직접적이다.
+        "seizing_count": _blank(to_int(pick(detail or {},
+                                            "condition.seizing.seizingCount"))),
+        "pledge_count": _blank(to_int(pick(detail or {},
+                                           "condition.seizing.pledgeCount"))),
         "first_advertised": str(first_ad)[:19] if first_ad else "",
         "re_registered": bool(re_registered) if re_registered is not None else "",
         "lease_rent_info": str(lease_rent_info)[:120] if lease_rent_info else "",

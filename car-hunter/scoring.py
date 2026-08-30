@@ -548,10 +548,23 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
                                "자기 부담이므로 SOH 진단을 반드시 받으세요")
         fair -= amt
     elif frac < B["reference_remaining_pct"]:
-        months = (B["reference_remaining_pct"] - frac) / 100.0 * 96.0
-        amt = months * B["manwon_per_month"]
+        # 보증 소멸(위) 값에 이어 붙인다. 예전 '부족 개월수 x 만원' 식은
+        # 상한이 144만원이라 160,000km 를 넘는 순간 1,000만원으로 뛰는
+        # 절벽이 있었다. 이제는 기준선에서 0원, 잔여 0%에서 소멸값이 되게
+        # 연결한다. 곡선은 볼록하다 — 보증이 거의 다 닳았을 때 잃는 것이
+        # 절반 남았을 때보다 훨씬 크기 때문이다.
+        ref = B["reference_remaining_pct"]
+        short = (ref - frac) / ref                       # 0 ~ 1
+        amt = abs(B["expired_manwon"]) * (short ** B.get("curve_exponent", 2.0))
+        left_bits = []
+        yl, kl = row.get("battery_years_left"), row.get("battery_km_left")
+        if to_float(yl) is not None:
+            left_bits.append(f"{to_float(yl):.1f}년")
+        if to_int(kl) is not None:
+            left_bits.append(f"{to_int(kl):,}km")
         out["breakdown"].append(
-            (f"배터리 보증 잔여 부족 ({frac:.0f}% · 기준 {B['reference_remaining_pct']:.0f}%)",
+            (f"배터리 보증 잔여 부족 ({frac:.0f}% · 기준 {ref:.0f}% · 남은 "
+             f"{' / '.join(left_bits)} · {row.get('battery_binding') or ''} 기준)",
              -round(amt, 0)))
         fair -= amt
 
@@ -906,6 +919,68 @@ def add_listing_signals(rows: list[dict]) -> None:
                     sig, note = "주의 — 보고 실망", extra
         r["listing_signal"] = sig
         r["listing_signal_note"] = note
+
+
+def weekly_brief(alerts: dict, diff: dict | None, ranked: list[dict]) -> dict:
+    """맨 위에 놓을 한 문단. 매주 여기만 읽어도 되게 만든다.
+
+    아래에 정보가 아무리 많아도, 매주 처음부터 읽을 수는 없다.
+    결론 한 줄 · 볼 매물 · 지난주 변화 세 줄이면 충분하다.
+    """
+    diff = diff or {}
+    picks = (alerts.get("opportunity") or [])[:3]
+    if not picks:
+        # 진짜 기회가 없으면 그 다음으로 볼 만한 것을 고른다.
+        picks = [r for r in ranked
+                 if r.get("value_verdict") == "설명되지 않는 저평가"][:3]
+
+    lines = []
+    for r in picks:
+        sg = to_float(r.get("value_gap_sigma"))
+        gap = to_float(r.get("value_gap_manwon"))
+        pct = to_float(r.get("value_gap_pct"))
+        why = []
+        if r.get("battery_maker"):
+            why.append(f"배터리 {r['battery_maker']}")
+        if str(r.get("page_is_image", "")).lower() in ("true", "1"):
+            why.append("성능기록부 사진뿐")
+        if r.get("listing_signal"):
+            why.append(r["listing_signal"])
+        lines.append({
+            "plate": r.get("plate_no") or r.get("vehicle_id"),
+            "model": r.get("model_label", ""),
+            "trim": r.get("trim_key", ""),
+            "price": to_float(r.get("price_manwon")),
+            "gap": gap, "pct": pct, "sigma": sg,
+            "verdict": r.get("value_verdict", ""),
+            "why": " · ".join(why),
+            "url": r.get("listing_url", ""),
+        })
+
+    changes = []
+    if diff.get("has_prev"):
+        nd, nu = len(diff.get("price_down") or []), len(diff.get("new") or [])
+        ng = len(diff.get("gone") or [])
+        big = [r for r in (diff.get("price_down") or [])
+               if (to_float(r.get("price_change_manwon")) or 0) <= -300]
+        changes.append(f"가격 내림 {nd}건" + (f" (300만원 이상 {len(big)}건)" if big else ""))
+        changes.append(f"새 매물 {nu}건")
+        changes.append(f"사라짐 {ng}건")
+    else:
+        changes.append("지난 실행 기록이 없습니다 — 다음 주부터 변화를 비교합니다")
+
+    if alerts.get("opportunity"):
+        headline = f"볼 매물 있습니다 — {len(alerts['opportunity'])}대"
+        tone = "act"
+    elif picks:
+        headline = ("확실한 기회는 없습니다. 다만 아래 "
+                    f"{len(picks)}대는 싼 이유를 못 찾았습니다")
+        tone = "watch"
+    else:
+        headline = "이번 주 볼 매물 없습니다"
+        tone = "idle"
+    return {"headline": headline, "tone": tone, "picks": lines,
+            "changes": changes}
 
 
 def build_alerts(ranked: list[dict], diff: dict | None) -> dict:

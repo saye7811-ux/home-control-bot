@@ -544,6 +544,16 @@ border:2px solid var(--plate-fg)}
             border:1px solid rgba(180,83,9,.35)}
 .flag-photo{margin-top:6px;padding:5px 9px;border-radius:6px;font-size:12px;
             font-weight:800;background:#7c2d12;color:#fff}
+.brief{margin:18px 0 6px;padding:18px 20px;border-radius:12px;
+       border:2px solid var(--border);background:var(--card)}
+.brief.b-act{border-color:#b45309;background:rgba(180,83,9,.07)}
+.brief.b-watch{border-color:#a16207}
+.brief-head{font-size:12px;font-weight:800;letter-spacing:.08em;
+            color:var(--muted);text-transform:uppercase}
+.brief h2{margin:4px 0 10px;font-size:20px}
+.brief-picks{margin:0 0 12px;padding-left:18px}
+.brief-picks li{margin:8px 0;line-height:1.55}
+.brief-changes{padding-top:10px;border-top:1px solid var(--border);font-size:13px}
 .alerts{margin:22px 0 8px}
 .alerts.none{padding:16px 18px;border:1px dashed var(--border);border-radius:10px}
 .alerts.none h2{margin:0 0 4px;font-size:17px}
@@ -682,6 +692,37 @@ def _trend_section(trend: list[dict] | None) -> str:
   </div>"""
 
 
+def _brief_section(brief: dict | None) -> str:
+    """맨 위 한 문단. 매주 여기만 읽어도 되게 만든다."""
+    if not brief:
+        return ""
+    tone = {"act": "b-act", "watch": "b-watch", "idle": "b-idle"}.get(
+        brief.get("tone"), "b-idle")
+    picks = ""
+    for p in brief.get("picks", []):
+        url = p.get("url") or ""
+        plate = _e(p["plate"])
+        link = f'<a href="{_e(url)}" target="_blank">{plate}</a>' if url else plate
+        picks += (
+            f'<li><b>{link}</b> <span class="muted">{_e(p["model"])} '
+            f'{_e(p["trim"])}</span> — {p["price"]:,.0f}만원, '
+            f'적정가 대비 <b>{p["gap"]:+,.0f}만원</b> '
+            f'({p["pct"]:+.1f}%, {p["sigma"]:+.2f}&sigma;) · {_e(p["verdict"])}'
+            + (f'<div class="muted small">참고: {_e(p["why"])}</div>'
+               if p.get("why") else "")
+            + '</li>')
+    picks_html = f'<ul class="brief-picks">{picks}</ul>' if picks else ""
+    return f"""
+  <div class="brief {tone}">
+    <div class="brief-head">이번 주 결론</div>
+    <h2>{_e(brief.get('headline', ''))}</h2>
+    {picks_html}
+    <div class="brief-changes"><b>지난주 대비</b> ·
+      {" · ".join(_e(c) for c in brief.get("changes", []))}</div>
+    <div class="muted small">아래는 상세입니다. 급하지 않으면 여기까지만 보셔도 됩니다.</div>
+  </div>"""
+
+
 def _alerts_section(alerts: dict | None) -> str:
     """이번 주에 손댈 것만 맨 위에. 없으면 한 줄로 끝낸다."""
     if alerts is None:
@@ -750,7 +791,8 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
                notes: list[str] | None = None,
                diff: dict | None = None,
                trend: list[dict] | None = None,
-               alerts: dict | None = None) -> str:
+               alerts: dict | None = None,
+               brief: dict | None = None) -> str:
     stage_label = "최종 (헤이딜러 숨은이력 반영)" if stage == "final" else "1차 (엔카 데이터만)"
     banner = ""
     if stage != "final":
@@ -780,6 +822,7 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
   <h1>중고 전기차 매물 분석 리포트</h1>
   <p class="sub">단계: <b>{_e(stage_label)}</b> · 생성 {datetime.now():%Y-%m-%d %H:%M} ·
      분석 대상 {len(ranked)}대 표시</p>
+  {_brief_section(brief)}
   {banner}{note_html}
   {_alerts_section(alerts)}
   {_diff_section(diff)}

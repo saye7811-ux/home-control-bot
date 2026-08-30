@@ -66,6 +66,8 @@ LISTING_FIELDS = [
     "page_js_suspect", "page_detail_bad", "page_detail_unknown",
     "page_ev_hv_bad", "page_ev_hv_unknown", "page_ev_hv_checked", "page_parse_note",
     "page_is_image",
+    "photo_count", "has_underbody_photo", "description_len",
+    "seizing_count", "pledge_count",
     "first_advertised", "days_on_market", "re_registered", "lease_rent_info",
     "insurance_not_joined", "loan_count", "first_seen", "last_seen",
     "price_first_manwon", "price_prev_manwon", "price_change_manwon",
