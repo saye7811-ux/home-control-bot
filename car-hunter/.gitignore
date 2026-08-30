@@ -32,3 +32,8 @@ __pycache__/
 *.pyc
 .venv/
 logs/
+
+# 자동 실행 로그
+logs/
+car-hunter/logs/
+car-hunter/data/.last_auto_run

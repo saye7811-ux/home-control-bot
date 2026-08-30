@@ -1,0 +1,4 @@
+# 배치/VBS 는 한글 Windows 의 cmd·wscript 가 ANSI(cp949)로 읽는다.
+# UTF-8 로 저장하면 한글이 쪼개져 명령으로 해석되므로 그대로 보존한다.
+*.bat -text
+*.vbs -text
