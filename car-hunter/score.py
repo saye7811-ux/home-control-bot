@@ -546,6 +546,9 @@ def main() -> int:
     p.add_argument("--sort", choices=["sigma", "amount", "pct"], default="sigma",
                    help="순위 기준. sigma=통계적 유의성(기본), "
                         "amount=절대금액(만원), pct=비율(%%)")
+    p.add_argument("--all-trims", action="store_true",
+                   help="구매 후보 트림 필터를 끄고 전 트림을 순위에 넣는다 "
+                        "(기본은 config.BUY_CANDIDATE_TRIMS 만)")
     p.add_argument("--include-lease", action="store_true",
                    help="리스·렌트 승계 매물도 순위에 포함 "
                         "(표시 가격이 인수금이라 기본은 제외)")
@@ -629,12 +632,24 @@ def main() -> int:
         ranked, lease = cand, []
     else:
         ranked = [r for r in cand if not _sample_only(r)]
+
+    # 실제로 살 트림만 순위에 남긴다. 나머지는 시세 회귀 표본으로만 쓴다
+    # (표본이 많을수록 시세선이 정확해지므로 수집·회귀에서는 빼지 않는다).
+    off_trim = []
+    if not args.all_trims:
+        off_trim = [r for r in ranked if not scoring.is_buy_candidate(r)]
+        ranked = [r for r in ranked if scoring.is_buy_candidate(r)]
     skipped = len(scored_all) - len(cand) - len(excluded)
 
     if excluded:
         warn(f"후보 제외 {len(excluded)}건 (침수/전손·배터리팩 손상·골격C):")
         for r in excluded[:5]:
             warn(f"    {r.get('plate_no') or r.get('vehicle_id')} — {r.get('excluded_reason')}")
+    if off_trim:
+        want = ", ".join(getattr(config, "BUY_CANDIDATE_TRIMS", []))
+        log(f"구매 후보 트림({want})만 순위에 남겼습니다 — "
+            f"{len(off_trim)}건은 시세 표본으로만 사용합니다 "
+            f"(--all-trims 로 전부 보기)")
     if lease:
         log(f"리스·렌트 승계 {len(lease)}건은 순위에서 제외했습니다 "
             f"(표시 가격이 인수금이라 차값과 같은 자로 못 잽니다). "
@@ -670,7 +685,7 @@ def main() -> int:
         r.setdefault("rank", "")
 
     write_csv(SCORED_CSV,
-              ranked + lease + excluded
+              ranked + off_trim + lease + excluded
               + [r for r in scored_all if not _detailed(r)],
               SCORED_FIELDS)
     market_dump = {}

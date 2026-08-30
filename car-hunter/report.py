@@ -287,18 +287,7 @@ def _verdict_html(r: dict) -> str:
     elif maker:
         out.append(f'<div class="muted small">배터리 {_e(maker)}</div>')
 
-    # 판매자가 설명글에서 주장한 옵션. 점수에는 안 들어간다 — 딜러
-    # 자유 기술이라 근거가 못 된다. 다만 에어서스처럼 다른 경로로
-    # 확정할 수 없는 항목이라 '확인할 거리' 로는 값이 있다.
-    claims = r.get("seller_option_claims") or ""
-    if claims:
-        out.append(f'<div class="claim">딜러 주장 옵션: {_e(claims)}</div>'
-                   '<div class="muted small">판매자 설명글 근거 · <b>미검증</b>입니다. '
-                   '점수에 반영하지 않았습니다 — 실차 또는 헤이딜러에서 확인하세요.</div>')
-    vin = str(r.get("insp_vin") or "")
-    if len(vin) == 17:
-        out.append(f'<div class="muted small">차대번호 <code>{_e(vin)}</code> '
-                   f'— VIN 디코더에 직접 입력하면 출고 옵션을 볼 수 있습니다</div>')
+    out.append(_option_block(r))
 
     # 매물 반응 신호
     sig = r.get("listing_signal") or ""
@@ -306,6 +295,43 @@ def _verdict_html(r: dict) -> str:
         cls = "sig-warn" if sig.startswith("주의") else "sig-good"
         out.append(f'<div class="{cls}">{_e(sig)}</div>'
                    f'<div class="muted small">{_e(r.get("listing_signal_note") or "")}</div>')
+    return "".join(out)
+
+
+def _option_block(r: dict) -> str:
+    """에어서스·후륜조향을 어떻게 확인할 것인가.
+
+    VIN 조회가 5분이면 끝나고 실제로 정확했으므로(354주4191 에서 2VR·2VH 가
+    헤이딜러 결과와 일치) 이쪽을 표준 절차로 둔다. 딜러 설명글은 '미검증'
+    배지 한 줄로만 남긴다.
+    """
+    import scoring
+    out = []
+    claims = str(r.get("seller_option_claims") or "")
+    if claims:
+        out.append(f'<div class="claim">{_e(claims)} <span>딜러 주장 · 미검증</span></div>')
+        hint = scoring.option_hint(r)
+        if hint.get("inferred"):
+            out.append(
+                f'<div class="muted small">{_e(", ".join(hint["inferred"]))}도 함께 있을 '
+                f'가능성이 높습니다 — {_e(hint.get("note") or "")}</div>')
+        elif hint.get("note"):
+            out.append(f'<div class="muted small">{_e(hint["note"])}</div>')
+
+    vin = str(r.get("insp_vin") or "").strip()
+    dec = scoring.vin_decoder_for(r)
+    if len(vin) == 17 and dec:
+        out.append(
+            f'<div class="vinrow"><code class="vin">{_e(vin)}</code>'
+            f'<button type="button" class="vinbtn" data-vin="{_e(vin)}" '
+            f'data-url="{_e(dec["url"])}">복사 + {_e(dec["name"])} 열기</button></div>'
+            f'<div class="muted small">{_e(dec.get("hint") or "")}</div>')
+    elif len(vin) == 17:
+        out.append(f'<div class="vinrow"><code class="vin">{_e(vin)}</code></div>')
+    else:
+        out.append('<div class="vinmissing">VIN 없음 — 딜러에게 차대번호 요청</div>'
+                   '<div class="muted small">성능기록부가 사진뿐이라 차대번호를 '
+                   '못 읽었습니다. 받으면 VIN 디코더로 출고 옵션을 확정할 수 있습니다.</div>')
     return "".join(out)
 
 
@@ -596,6 +622,15 @@ tr.row-photo td{background:rgba(124,45,18,.06)}
            font-weight:800;background:#991b1b;color:#fff}
 .claim{margin-top:6px;padding:4px 8px;border-radius:6px;font-size:12px;
        font-weight:700;background:rgba(37,99,235,.12);color:#2563eb}
+.claim span{font-weight:600;opacity:.75;font-size:11px}
+.vinrow{margin-top:7px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.vin{font-size:12px;letter-spacing:.05em;background:var(--bg);
+     border:1px solid var(--border);border-radius:5px;padding:2px 6px;user-select:all}
+.vinbtn{font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px;
+        border:1px solid var(--good);background:transparent;color:var(--good);
+        cursor:pointer}
+.vinbtn:hover,.vinbtn.done{background:var(--good);color:#fff}
+.vinmissing{margin-top:7px;font-size:12px;font-weight:700;color:var(--muted)}
 .sig-warn{margin-top:6px;font-size:12px;font-weight:800;color:#b45309}
 .sig-good{margin-top:6px;font-size:12px;font-weight:800;color:var(--good)}
 .trimtbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
@@ -940,4 +975,27 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
     개인 검토용 자동 분석 결과입니다. 점수는 공개 매물 정보에 기반한 상대 비교이며
     차량의 실제 상태를 보증하지 않습니다. 계약 전 위 체크리스트를 직접 확인하세요.
   </footer>
+  <script>
+  // VIN 복사 + 디코더 열기.
+  // 디코더가 POST 방식이라 URL 로 넘길 수 없다. 클립보드에 넣고 새 탭을
+  // 열어 주면 붙여넣기(Ctrl+V) 한 번으로 조회된다.
+  document.addEventListener('click', function (e) {{
+    var b = e.target.closest && e.target.closest('.vinbtn');
+    if (!b) return;
+    var done = function () {{
+      b.classList.add('done');
+      b.textContent = '복사됨 — Ctrl+V';
+      window.open(b.dataset.url, '_blank', 'noopener');
+    }};
+    var vin = b.dataset.vin || '';
+    if (navigator.clipboard && navigator.clipboard.writeText) {{
+      navigator.clipboard.writeText(vin).then(done, done);
+    }} else {{
+      var t = document.createElement('textarea');
+      t.value = vin; document.body.appendChild(t); t.select();
+      try {{ document.execCommand('copy'); }} catch (err) {{}}
+      document.body.removeChild(t); done();
+    }}
+  }});
+  </script>
 </div>"""

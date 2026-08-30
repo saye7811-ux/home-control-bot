@@ -140,6 +140,56 @@ def normalize_trim(t: str) -> str:
     return (t[:20] or "(미상)").upper()
 
 
+def is_buy_candidate(row: dict) -> bool:
+    """실제로 살 생각이 있는 트림인가.
+
+    시세 회귀는 전 트림으로 넓게 하고(표본이 많을수록 선이 정확하다),
+    순위표는 이 목록으로 좁게 본다. 살 생각이 없는 트림이 섞이면
+    볼 것이 흐려진다.
+    """
+    want = getattr(config, "BUY_CANDIDATE_TRIMS", None)
+    if not want:
+        return True                       # 목록이 비면 필터를 끈다
+    return normalize_trim(row.get("trim")) in set(want)
+
+
+def brand_of(row: dict) -> str:
+    """옵션 묶음·VIN 디코더를 고르기 위한 브랜드 판정."""
+    hay = f"{row.get('model_label','')} {row.get('trim','')}".upper()
+    if "BMW" in hay or "XDRIVE" in hay:
+        return "BMW"
+    if "벤츠" in f"{row.get('model_label','')}" or "EQE" in hay:
+        return "벤츠"
+    return ""
+
+
+def option_hint(row: dict) -> dict:
+    """딜러가 말한 옵션에서 어디까지 추정할 수 있는가.
+
+    BMW iX 는 에어서스(2VR)와 후륜조향(2VH)이 다이나믹 핸들링 패키지로
+    묶여 있어 하나만 따로 못 넣는다. 그래서 하나만 언급돼도 다른 하나가
+    함께 있을 가능성이 높다. 벤츠 EQE SUV 는 별개 옵션이라 그렇지 않다.
+
+    어느 쪽이든 추정이다. 확정은 VIN 조회로 한다.
+    """
+    brand = brand_of(row)
+    B = getattr(config, "OPTION_BUNDLES", {}).get(brand) or {}
+    claims = [c for c in str(row.get("seller_option_claims") or "").split(", ") if c]
+    out = {"brand": brand, "claimed": claims, "inferred": [], "note": B.get("note", "")}
+    if not claims:
+        return out
+    if B.get("bundled"):
+        for other in ("에어서스펜션", "후륜조향"):
+            if other not in claims:
+                out["inferred"].append(other)
+    return out
+
+
+def vin_decoder_for(row: dict) -> dict:
+    d = getattr(config, "VIN_DECODERS", {}).get(brand_of(row))
+    return dict(d) if d else {}
+
+
 def battery_for_trim(trim: str) -> dict:
     """트림명으로 배터리 제조사를 판정한다 (헤이딜러 없이)."""
     info = getattr(config, "TRIM_BATTERY", {}).get(normalize_trim(trim))
