@@ -40,13 +40,44 @@ BLOCK_MARKERS = (
 
 
 class EncarBlocked(RuntimeError):
-    """캡차/429/403 등 차단 신호. 잡으면 즉시 파이프라인을 멈춘다."""
+    """캡차/429/403 등 엔카 쪽 차단 신호. 잡으면 즉시 파이프라인을 멈춘다."""
 
     def __init__(self, stage: str, detail: str, status: int | None = None):
         self.stage = stage
         self.detail = detail
         self.status = status
         super().__init__(f"[{stage}] {detail}" + (f" (HTTP {status})" if status else ""))
+
+
+class EncarUnreachable(RuntimeError):
+    """엔카 서버에 도달조차 못한 경우 (프록시 정책, 방화벽, DNS, 오프라인).
+
+    엔카가 우리를 차단한 것과는 원인도 대처도 다르므로 반드시 구분한다.
+    이 경우 재시도해봐야 의미가 없고, BLOCKED.txt 를 남겨서도 안 된다.
+    """
+
+    def __init__(self, stage: str, detail: str):
+        self.stage = stage
+        self.detail = detail
+        super().__init__(f"[{stage}] {detail}")
+
+
+# 프록시/방화벽이 연결 자체를 거부했을 때 나타나는 문구들
+UNREACHABLE_MARKERS = (
+    "tunnel connection failed: 403",
+    "tunnel connection failed: 407",
+    "unable to connect to proxy",
+    "proxyerror",
+    "name or service not known",
+    "temporary failure in name resolution",
+    "nodename nor servname",
+)
+
+
+def _is_unreachable(exc: Exception) -> bool:
+    """네트워크 일시 오류(재시도 가치 있음)와 정책 거부(재시도 무의미)를 가른다."""
+    s = f"{exc.__class__.__name__} {exc}".lower()
+    return any(m in s for m in UNREACHABLE_MARKERS)
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +192,14 @@ class EncarClient:
             try:
                 r = self.s.get(url, params=params, timeout=self.timeout)
             except requests.RequestException as e:
+                if _is_unreachable(e):
+                    # 프록시 정책 거부/DNS 실패는 재시도해도 결과가 같다.
+                    raise EncarUnreachable(
+                        stage,
+                        "엔카 서버에 연결하지 못했습니다. 엔카의 차단이 아니라 "
+                        "네트워크 경로 문제입니다 (프록시 정책 거부 / 방화벽 / DNS / 오프라인).\n"
+                        f"  원인: {e.__class__.__name__}: {str(e)[:200]}",
+                    ) from e
                 last_err = e
                 if attempt < self.retry:
                     delay = self.backoff[min(attempt, len(self.backoff) - 1)]

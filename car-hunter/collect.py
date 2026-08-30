@@ -153,6 +153,37 @@ def cmd_discover(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# 실패 보고
+# ---------------------------------------------------------------------------
+def _unreachable_msg(e, collected: int | None = None) -> str:
+    lines = [
+        "",
+        "=" * 68,
+        "엔카 서버에 연결하지 못했습니다 — 중단합니다.",
+        "=" * 68,
+        f"  막힌 단계 : {e.stage}",
+        f"  분류      : 도달 불가 (엔카의 차단이 아님)",
+        f"  {e.detail}",
+    ]
+    if collected is not None:
+        lines.append(f"  확보한 매물: {collected}건 (저장 완료)")
+    lines += [
+        "",
+        "  확인할 것:",
+        "    1. 브라우저에서 www.encar.com 이 열리는지",
+        "    2. 회사/기관 네트워크나 프록시가 막고 있지 않은지",
+        "       (HTTPS_PROXY 환경변수가 설정돼 있다면 그 프록시의 정책일 수 있음)",
+        "    3. VPN / 방화벽 / DNS 설정",
+        "",
+        "  네트워크 없이 2·3단계만 점검하려면:",
+        "    python samples/make_fixture.py && python collect.py --fixture samples/",
+        "=" * 68,
+        "",
+    ]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # 본 수집
 # ---------------------------------------------------------------------------
 def collect_target(client, target: dict, limit: int, with_detail: bool,
@@ -228,6 +259,7 @@ def cmd_collect(args) -> int:
     all_rows: list[dict] = []
     details: dict = {}
     blocked: api.EncarBlocked | None = None
+    unreachable: api.EncarUnreachable | None = None
 
     for target in targets:
         try:
@@ -235,12 +267,19 @@ def cmd_collect(args) -> int:
         except api.EncarBlocked as e:
             blocked = e
             break
+        except api.EncarUnreachable as e:
+            unreachable = e
+            break
 
     for r in all_rows:
         r.setdefault("collected_at", datetime.now().isoformat(timespec="seconds"))
     write_csv(LISTINGS_CSV, all_rows, LISTING_FIELDS)
     write_json(DETAILS_JSON, details)
     log(f"저장: {LISTINGS_CSV} ({len(all_rows)}건), {DETAILS_JSON}")
+
+    if unreachable:
+        print(_unreachable_msg(unreachable, len(all_rows)), file=sys.stderr)
+        return 3
 
     if blocked:
         msg = (
@@ -323,6 +362,14 @@ def main() -> int:
             f.write(msg)
         print("\n" + msg, file=sys.stderr)
         return 2
+    except api.EncarUnreachable as e:
+        # 엔카의 차단이 아니므로 BLOCKED.txt 는 남기지 않는다.
+        print(_unreachable_msg(e), file=sys.stderr)
+        return 3
+    except RuntimeError as e:
+        # 트레이스백을 그대로 쏟지 않고 원인만 보고한다.
+        print(f"\n실패: {e}\n", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
