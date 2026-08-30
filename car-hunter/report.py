@@ -26,6 +26,9 @@ CHECKLIST = [
      "배터리 팩 하우징 상태 확인. 성능점검 표기만 믿지 말 것."),
     ("타이어 4본 잔여 트레드", "전기차는 마모가 빠르다. 트레드 4mm 미만이면 "
      "4본 교체 비용(100만원 이상)을 가격 협상에 반영."),
+    ("저당(담보) 말소 확인", "자동차등록원부 을구에 저당권이 남아 있으면 명의 이전이 "
+     "막힌다. 잔금 전에 말소 완료를 등록원부로 직접 확인할 것. 딜러가 처리하는 것이 "
+     "일반적이지만 확인은 사는 쪽 몫이다. 리포트에 '저당 설정 있음' 이 뜬 매물은 특히."),
     ("보험개발원 카히스토리 직접 조회", "헤이딜러 결과와 교차 검증. 소유자 변경 횟수와 용도이력 확인."),
     ("리콜/캠페인 미이행 확인", "차대번호로 제조사 리콜 조회. 미이행 건 인수 전 처리 요구."),
     ("실차 시승", "회생제동 단계별 작동, 경고등, 에어컨/히트펌프, 12V 배터리 상태."),
@@ -239,6 +242,13 @@ def _verdict_html(r: dict) -> str:
     if dom is not None:
         basis = r.get("days_on_market_basis") or ""
         out.append(f'<div class="muted small">딜러 보유 {dom}일 ({_e(basis)})</div>')
+
+    # 저당은 감점 항목이 아니다. 계약 전 말소하면 끝나는 절차 문제라
+    # 매물 가치와 직접 관련이 없다. 다만 놓치면 명의 이전이 막힌다.
+    loan = to_int(r.get("loan_count"))
+    if loan:
+        out.append(f'<div class="flag-check">저당 설정 있음 ({loan}건) '
+                   f'— 계약 전 말소 확인 필수</div>')
     return "".join(out)
 
 
@@ -477,6 +487,9 @@ border:2px solid var(--plate-fg)}
 .v-warm{background:#a16207;color:#fff}
 .v-cool{background:var(--border);color:var(--muted)}
 .v-flat{background:transparent;color:var(--muted);border:1px solid var(--border)}
+.flag-check{margin-top:6px;padding:4px 8px;border-radius:6px;font-size:12px;
+            font-weight:700;background:rgba(180,83,9,.14);color:#b45309;
+            border:1px solid rgba(180,83,9,.35)}
 .bdcell{min-width:250px}
 table.bd{width:100%;border-collapse:collapse;font-size:11.5px;min-width:auto}
 table.bd td{padding:2px 4px;border:0;vertical-align:top}

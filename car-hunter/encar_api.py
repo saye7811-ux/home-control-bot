@@ -595,7 +595,12 @@ RECORD_FIELDS: dict[str, tuple[str, ...]] = {
     "flood_part_count":     ("floodPartLossCnt", "floodPartCnt"),
     "theft_count":          ("robberCnt", "theftCnt", "robberyCnt"),
     # 과거 용도 이력 (현재 판매형태와 별개 — 과거에 그렇게 '등록' 된 적이 있는가)
-    "rental_use_count":     ("loan", "loanCnt", "rentCnt", "rentalCnt"),
+    # 'loan' 은 여기에 넣지 않는다. loan 은 대여(렌트)가 아니라
+    # 저당(담보) 설정이다 — 자동차 담보대출이 걸려 있다는 뜻으로,
+    # 용도 이력과는 완전히 다른 개념이다. 넣어 두면 저당 잡힌 차에
+    # '과거 대여·영업용' 8% 할인이 잘못 붙는다.
+    # 대여 이력은 아래 carInfoUse1s/carInfoUse2s 배열로 판정한다.
+    "rental_use_count":     ("rentCnt", "rentalCnt", "rentCount"),
     "business_use_count":   ("business", "businessCnt", "businessCount"),
     "government_use_count": ("government", "governmentCnt", "governmentCount"),
     # 저당(담보) 설정 — 용도 이력과는 다른 항목이다
@@ -686,9 +691,8 @@ def normalize_record(record: Any) -> dict:
                     out["use_history"].append(txt.strip()[:80])
             out["record_fields_found"].append(f"use_history({path})")
 
-    # 용도 이력 배열이 있으면 정수 필드보다 우선한다.
-    # loan=0 인데 carInfoUse2s 에 '대여용(렌터카)' 가 들어 있는 경우가 있다.
-    # 정수 필드만 믿으면 대여 이력을 놓친다. 둘 중 큰 값을 쓴다.
+    # 대여 이력의 주 근거는 이 배열이다 (차량이력 페이지의 '렌터카 등
+    # 대여용' 항목에 해당). 정수 필드는 보조로만 쓰고 둘 중 큰 값을 쓴다.
     if out["use_history"]:
         for field, words in (("rental_use_count", RENTAL_USE_WORDS),
                              ("business_use_count", BUSINESS_USE_WORDS),

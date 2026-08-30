@@ -44,6 +44,8 @@ SCORED_FIELDS = [
     "value_gap_pct", "value_gap_sigma", "sigma_manwon",
     "value_verdict", "value_verdict_note", "discount_priced_in",
     "discount_extra", "discount_extra_manwon", "discount_unexplained_manwon",
+    "discount_notes", "insurance_gap_dealer", "insurance_gap_personal",
+    "insurance_gap_unknown", "first_advertised",
     "days_on_market", "days_on_market_basis", "first_seen", "last_seen",
     "price_first_manwon", "price_prev_manwon", "price_change_manwon",
     "price_change_count", "insurance_not_joined", "re_registered", "loan_count",
@@ -388,6 +390,14 @@ def print_top(rows, n, sort_label: str = "") -> None:
             if piece and "=" in piece:
                 lab, amt = piece.rsplit("=", 1)
                 print(f"          싼 이유  {lab:<50} {amt:>10}")
+        if r.get("discount_notes"):
+            for n in str(r["discount_notes"]).split(" ; "):
+                if n:
+                    print(f"       (참고) {n}")
+        loan = to_int(r.get("loan_count"))
+        if loan:
+            print(f"       [확인필요] 저당 설정 있음 ({loan}건) — 계약 전 말소 확인 필수 "
+                  f"(감점 아님)")
         print(f"       {r.get('model_label')} · {r.get('trim')} · {r.get('region')}"
               f"  |  {r.get('year')}.{str(r.get('month') or '').zfill(2)}"
               f"  |  {fmt_km(r.get('mileage_km'))}")

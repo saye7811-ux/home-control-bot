@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -506,6 +507,66 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 자차보험 미가입 기간 — 언제 비어 있었는가가 중요하다
+# ---------------------------------------------------------------------------
+def _parse_ym(t: str):
+    """'202509' -> (2025, 9). 못 읽으면 None."""
+    t = re.sub(r"[^0-9]", "", str(t or ""))
+    if len(t) < 6:
+        return None
+    try:
+        y, m = int(t[:4]), int(t[4:6])
+    except ValueError:
+        return None
+    return (y, m) if 1 <= m <= 12 else None
+
+
+def classify_insurance_gaps(row: dict) -> dict:
+    """자차보험 미가입 기간을 '딜러 보유 중' 과 '개인 소유 중' 으로 가른다.
+
+    미가입 기간 자체는 흠이 아니다. 딜러가 매물로 잡아 두는 동안 자차보험을
+    해지해 두는 것은 흔한 일이고, 그 기간엔 차가 굴러다니지도 않는다.
+
+    문제는 **개인이 타고 다니던 기간에 자차보험이 비어 있던 경우**다.
+    그 기간에 난 사고는 보험 기록에 남지 않으므로 '무사고' 표기의 근거가
+    그만큼 약해진다. 우리가 보는 사고 이력이 전부가 아닐 수 있다는 뜻이다.
+
+    엔카의 최초 광고일(firstAdvertisedDateTime)이 딜러 보유 시작점이므로
+    그 앞뒤로 자동 판정할 수 있다.
+
+    돌려주는 것:
+      dealer_side  — 딜러 보유 기간과 겹치는 구간 (표시만)
+      personal     — 개인 소유 기간에 걸친 구간 (불확실성 할인 대상)
+      unknown      — 광고일을 몰라 판정 못 한 구간
+    """
+    out = {"dealer_side": [], "personal": [], "unknown": [], "raw": []}
+    gaps = [x for x in str(row.get("insurance_not_joined") or "").split(" | ") if x]
+    if not gaps:
+        return out
+    out["raw"] = gaps
+
+    ad = str(row.get("first_advertised") or "")[:7].replace("-", "")
+    ad_ym = _parse_ym(ad) if ad else None
+
+    for g in gaps:
+        parts = re.split(r"[~\-]", g.strip())
+        start = _parse_ym(parts[0]) if parts else None
+        if start is None:
+            out["unknown"].append(g)
+            continue
+        if ad_ym is None:
+            out["unknown"].append(g)
+            continue
+        # 구간이 딜러 광고 시작 이후에 시작했으면 딜러 보유 중이다.
+        # 그 앞에서 시작했으면 (일부라도) 개인이 타던 기간에 걸친다.
+        if start >= ad_ym:
+            out["dealer_side"].append(g)
+        else:
+            out["personal"].append(g)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # "왜 싼가" — 할인 사유로 저평가를 설명해 본다
 # ---------------------------------------------------------------------------
 def explain_discount(row: dict, baseline: float | None) -> dict:
@@ -526,7 +587,7 @@ def explain_discount(row: dict, baseline: float | None) -> dict:
     """
     D = config.DISCOUNT_REASONS
     out = {"priced_in": [], "extra": [], "extra_manwon": 0.0,
-           "verdict": "", "verdict_note": ""}
+           "verdict": "", "verdict_note": "", "notes": []}
     if not baseline or baseline <= 0:
         return out
 
@@ -544,14 +605,28 @@ def explain_discount(row: dict, baseline: float | None) -> dict:
                              "확인할 수 없음", -a))
         out["extra_manwon"] += a
 
-    gaps = [x for x in str(row.get("insurance_not_joined") or "").split(" | ") if x]
-    if gaps:
-        a = min(pct(D["insurance_gap_pct"] * len(gaps)),
+    # 자차보험 미가입은 '언제' 비었느냐가 갈린다.
+    # 딜러 보유 중이면 정상(차가 굴러다니지 않는다). 개인이 타던 기간에
+    # 비었으면 그때 난 사고가 기록에 없을 수 있다.
+    ig = classify_insurance_gaps(row)
+    row["insurance_gap_dealer"] = " | ".join(ig["dealer_side"])
+    row["insurance_gap_personal"] = " | ".join(ig["personal"])
+    row["insurance_gap_unknown"] = " | ".join(ig["unknown"])
+
+    risky = ig["personal"] + ig["unknown"]
+    if risky:
+        a = min(pct(D["insurance_gap_pct"] * len(risky)),
                 pct(D["insurance_gap_max_pct"]))
-        out["extra"].append((f"자차보험 미가입 기간 {len(gaps)}구간 "
-                             f"({', '.join(gaps[:2])}{'...' if len(gaps) > 2 else ''}) "
-                             f"— 그 기간 사고는 보험기록에 남지 않음", -a))
+        why = ("개인 소유 기간" if ig["personal"] else "시점 판정 불가")
+        out["extra"].append((f"자차보험 미가입 {len(risky)}구간 · {why} "
+                             f"({', '.join(risky[:2])}{'...' if len(risky) > 2 else ''}) "
+                             f"— 그 기간 사고는 보험기록에 없을 수 있음", -a))
         out["extra_manwon"] += a
+    if ig["dealer_side"]:
+        out["notes"] = out.get("notes", [])
+        out["notes"].append(
+            f"자차보험 미가입 {len(ig['dealer_side'])}구간이 있으나 딜러 보유 "
+            f"기간과 겹칩니다 ({', '.join(ig['dealer_side'][:2])}) — 정상입니다")
 
     dom = to_int(row.get("days_on_market"))
     if dom is not None:
@@ -567,12 +642,6 @@ def explain_discount(row: dict, baseline: float | None) -> dict:
     if _truthy(row.get("re_registered")):
         a = pct(D["re_registered_pct"])
         out["extra"].append(("재등록 매물 — 한 번 안 팔려 다시 올림", -a))
-        out["extra_manwon"] += a
-
-    loan = to_int(row.get("loan_count"))
-    if loan:
-        a = pct(D["loan_pct"])
-        out["extra"].append((f"저당 설정 이력 {loan}건", -a))
         out["extra_manwon"] += a
 
     if str(row.get("price_unknowns") or "").find("수리 부위를 모릅니다") >= 0:
@@ -610,6 +679,7 @@ def judge_value(row: dict) -> dict:
     row["discount_extra"] = " ; ".join(
         f"{lab}={amt:+,.0f}" for lab, amt in ex["extra"])
     row["discount_extra_manwon"] = round(ex["extra_manwon"], 0)
+    row["discount_notes"] = " ; ".join(ex.get("notes") or [])
 
     if gap is None:
         row["value_verdict"] = ""
