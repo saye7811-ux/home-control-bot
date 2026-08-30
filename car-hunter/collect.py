@@ -1297,6 +1297,21 @@ def cmd_collect(args) -> int:
     for r in all_rows:
         r.setdefault("collected_at", datetime.now().isoformat(timespec="seconds"))
     # 이력에서 온 값(딜러 보유 기간, 처음 본 날, 가격 변동)을 먼저 채운다.
+    # 0건을 받았는데 예전 데이터가 있으면 덮어쓰지 않는다.
+    #
+    # 수집이 실패하는 이유(차단·네트워크·쿼리 오류)는 대개 일시적인데,
+    # 그때마다 listings.csv 를 0건으로 밀어 버리면 지금까지 쌓은 이력과
+    # '지난주 대비' 비교가 통째로 날아간다. 자동 실행에서는 사람이 보고
+    # 있지 않으므로 더 위험하다. 실제로 클라우드 첫 실행에서 엔카가
+    # HTTP 407 을 돌려줬을 때 0건으로 덮어썼다.
+    if not all_rows:
+        had = read_csv(LISTINGS_CSV) if os.path.exists(LISTINGS_CSV) else []
+        if had:
+            warn(f"수집 결과가 0건입니다 — 기존 {len(had)}건을 그대로 둡니다 "
+                 f"(덮어쓰지 않았습니다).")
+            warn("원인을 확인하세요: python collect.py --probe")
+            return 1
+
     history.annotate(all_rows)
     write_csv(LISTINGS_CSV, all_rows, LISTING_FIELDS)
     write_json(DETAILS_JSON, details)

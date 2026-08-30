@@ -54,6 +54,24 @@ jobs:
           restore-keys: |
             encar-details-
 
+      # 엔카에 닿는지 먼저 본다. 클라우드 러너는 IP 대역이 데이터센터라
+      # 사이트가 막아 두는 경우가 있다 (첫 실행에서 HTTP 407 이 났다).
+      # 실패해도 워크플로를 멈추지 않고 진단만 남긴다.
+      - name: 엔카 연결 진단
+        continue-on-error: true
+        env:
+          UA: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+          URL: "https://api.encar.com/search/car/list/general?count=true&q=(And.Hidden.N._.CarType.N.)&sr=%7CModifiedDate%7C0%7C1"
+        run: |
+          echo "--- 프록시 환경변수 ---"
+          env | grep -iE 'proxy' || echo '(없음)'
+          echo "--- 나가는 IP ---"
+          curl -s --max-time 15 https://api.ipify.org || echo "(확인 실패)"
+          echo
+          echo "--- 엔카 응답 헤더 ---"
+          curl -s -D - -o /dev/null --max-time 20 -A "$UA" "$URL" | head -15 || echo "연결 실패"
+
+
       - name: 수집 (증분)
         env:
           PYTHONIOENCODING: utf-8
