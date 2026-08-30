@@ -641,7 +641,8 @@ def normalize_record(record: Any) -> dict:
                     "type": pick(a, "type", "accidentType", "gubun"),
                     "part_cost": to_int(pick(a, "partCost", "partAmount")),
                     "labor_cost": to_int(pick(a, "laborCost", "laborAmount")),
-                    "paint_cost": to_int(pick(a, "paintCost", "paintAmount")),
+                    "paint_cost": to_int(pick(a, "paintingCost", "paintCost",
+                                              "paintAmount")),
                     "total": to_int(pick(a, "insuranceBenefit", "totalCost", "amount")),
                 })
             out["record_fields_found"].append(f"accident_details({path})")
@@ -677,7 +678,12 @@ PART_KEYS = ("title", "name", "partname", "part", "label", "typename", "itemname
 
 
 def _status_of(d: dict) -> str | None:
-    """dict 안에서 상태 부호(X/W/A/U/C/T)를 찾는다."""
+    """dict 안에서 상태 부호(X/W/A/U/C/T)를 찾는다.
+
+    'statusType': 'X' 뿐 아니라 'statusType': {'code': 'X', 'title': '교환'}
+    같은 형태도 받는다. 다만 부호 한 글자를 아무 필드에서나 줍지 않도록
+    키 이름이 상태를 뜻하는 경우로 한정한다.
+    """
     import config as _cfg
     for k, v in d.items():
         if not any(sk in k.lower() for sk in STATUS_KEYS):
@@ -685,9 +691,9 @@ def _status_of(d: dict) -> str | None:
         if isinstance(v, str) and v.strip().upper() in _cfg.INSPECTION_STATUS:
             return v.strip().upper()
         if isinstance(v, dict):
-            inner = _status_of(v)
-            if inner:
-                return inner
+            for vv in v.values():
+                if isinstance(vv, str) and vv.strip().upper() in _cfg.INSPECTION_STATUS:
+                    return vv.strip().upper()
     return None
 
 
@@ -703,31 +709,68 @@ def _part_of(d: dict) -> str | None:
     return None
 
 
+def _status_label(code: str) -> str:
+    import config as _cfg
+    return _cfg.INSPECTION_STATUS.get(code, (code, 0.0))[0]
+
+
+def _title_of(d: dict) -> str | None:
+    """dict 의 이름표. type.title / title / name 순으로 본다."""
+    t = pick(d, "type.title", "type.name", "title", "name", "partName", "itemName")
+    if isinstance(t, str) and t.strip():
+        return t.strip()
+    return None
+
+
+def _code_of(d: dict) -> str | None:
+    c = pick(d, "type.code", "code", "partCode")
+    return str(c).strip() if isinstance(c, (str, int)) and str(c).strip() else None
+
+
 def find_repair_entries(inspection: Any) -> list[dict]:
     """성능점검 응답에서 (부위, 상태부호) 쌍을 모두 찾아낸다.
 
-    응답 구조를 모르므로 중첩 구조 전체를 훑으면서 '부위명 같은 값' 과
-    '상태 부호 같은 값' 을 함께 가진 dict 를 수리 기록으로 본다.
+    엔카 성능점검은 inners / outers / etcs 아래에 children 이 한 단계 더
+    있는 트리다. 부위명이 부모(type.title)에, 상태 부호가 자식에 있는
+    경우가 있으므로 부모 이름을 물고 내려간다.
     """
     out: list[dict] = []
     seen: set[tuple] = set()
 
-    def walk(obj, path=""):
+    def walk(obj, path: str = "", parents: tuple[str, ...] = ()):
         if isinstance(obj, dict):
-            part = _part_of(obj)
+            title = _title_of(obj)
             status = _status_of(obj)
-            if part and status:
-                key = (part, status)
-                if key not in seen:
-                    seen.add(key)
-                    out.append({"part": part, "status": status, "path": path})
+            here = parents + ((title,) if title else ())
+
+            if status:
+                # 부위명은 자기 이름 우선, 없으면 가장 가까운 부모 이름
+                part = title or (parents[-1] if parents else None)
+                if part:
+                    key = (part, status, path)
+                    if key not in seen:
+                        seen.add(key)
+                        out.append({
+                            "part": part, "status": status, "path": path,
+                            "code": _code_of(obj) or "",
+                            "context": " > ".join(here) if here else "",
+                        })
             for k, v in obj.items():
-                walk(v, f"{path}.{k}" if path else k)
+                # 상태 부호 dict 안으로는 내려가지 않는다.
+                # {'statusType': {'code':'W','title':'판금'}} 에 들어가면
+                # '판금' 이 부위명으로 잡힌다.
+                if any(sk in k.lower() for sk in STATUS_KEYS):
+                    continue
+                walk(v, f"{path}.{k}" if path else k, here)
         elif isinstance(obj, list):
             for i, v in enumerate(obj):
-                walk(v, f"{path}[{i}]")
+                walk(v, f"{path}[{i}]", parents)
 
     walk(inspection)
+    for e in out:
+        # 최상위 섹션(inners/outers/etcs)을 기록해 둔다.
+        # inners 는 자기진단 항목이라 차체 수리 부위와 성격이 다르다.
+        e["section"] = e["path"].split("[")[0].split(".")[0]
     return out
 
 
@@ -735,11 +778,17 @@ def score_repairs(entries: list[dict]) -> dict:
     """수리 기록을 법정 등급으로 분류하고 감점을 계산한다."""
     import config as _cfg
 
-    graded, unclassified = [], []
+    graded, unclassified, diagnostics = [], [], []
     for e in entries:
         rank = classify_part(e["part"])
         if rank is None:
-            unclassified.append(e["part"])
+            # 자기진단(inners) 항목은 차체 부위가 아니므로 '미분류' 로
+            # 보고하지 않는다. 별도로 모아 참고 표시만 한다.
+            if e.get("section") == "inners":
+                st = _status_label(e["status"])
+                diagnostics.append(f"{e['part']} {st}({e['status']})")
+            else:
+                unclassified.append(e["part"])
             continue
         spec = _cfg.INSPECTION_RANKS[rank]
         lo, hi = spec["range"]
@@ -763,11 +812,73 @@ def score_repairs(entries: list[dict]) -> dict:
     worst = graded[0] if graded else None
     return {
         "entries": graded,
+        "diagnostics": diagnostics,
         "unclassified": unclassified,
         "penalty": round(total, 1),
         "worst_rank": worst["rank"] if worst else None,
         "worst_note": worst["note"] if worst else None,
     }
+
+
+# 사고 건별 type 코드의 의미는 문서화돼 있지 않다. 아래는 추정이며,
+# infer_accident_types() 가 myAccidentCnt / otherAccidentCnt 와 대조해
+# 맞는지 검증한다. 검증에 실패하면 '추정' 딱지를 붙여 표시한다.
+ACCIDENT_TYPE_GUESS = {
+    "1": "내차 피해",
+    "2": "내차 피해(부분)",
+    "3": "타차 가해",
+    "4": "타차 가해(부분)",
+}
+
+
+def infer_accident_types(rec: dict) -> tuple[dict, str]:
+    """사고 건별 type 코드의 의미를 건수와 대조해 검증한다.
+
+    myAccidentCnt / otherAccidentCnt 를 알고 있으므로, type 별 건수를 세어
+    일치하면 추정이 맞다고 볼 수 있다.
+    """
+    details = rec.get("accident_details") or []
+    if not details:
+        return {}, "사고 상세 없음"
+
+    counts: dict[str, int] = {}
+    for a in details:
+        t = str(a.get("type") or "?")
+        counts[t] = counts.get(t, 0) + 1
+
+    my_n, other_n = rec.get("my_accident_count"), rec.get("other_accident_count")
+    mine = sum(n for t, n in counts.items() if ACCIDENT_TYPE_GUESS.get(t, "").startswith("내차"))
+    others = sum(n for t, n in counts.items() if ACCIDENT_TYPE_GUESS.get(t, "").startswith("타차"))
+
+    if my_n is None or other_n is None:
+        return counts, "검증 불가 (건수 필드 없음)"
+    if mine == my_n and others == other_n:
+        return counts, f"검증됨 (내차 {mine}건 / 타차 {others}건 일치)"
+    return counts, (f"추정과 불일치 — type별 {counts} 인데 "
+                    f"내차 {my_n}건 / 타차 {other_n}건. 코드 의미 재확인 필요")
+
+
+def describe_accidents(rec: dict) -> tuple[list[str], str]:
+    """사고 건별 상세를 사람이 읽을 문장으로."""
+    counts, verdict = infer_accident_types(rec)
+    lines = []
+    for a in (rec.get("accident_details") or []):
+        t = str(a.get("type") or "?")
+        label = ACCIDENT_TYPE_GUESS.get(t, f"유형 {t}")
+        if "검증됨" not in verdict:
+            label += "(추정)"
+        parts = []
+        for key, nm in (("part_cost", "부품"), ("labor_cost", "공임"),
+                        ("paint_cost", "도장")):
+            v = a.get(key)
+            if v:
+                parts.append(f"{nm} {v:,}원")
+        total = a.get("total")
+        head = f"{a.get('date') or '일자미상'} {label}"
+        if total:
+            head += f" 보험금 {total:,}원"
+        lines.append(head + (" (" + ", ".join(parts) + ")" if parts else ""))
+    return lines, verdict
 
 
 def normalize_inspection(inspection: Any) -> dict:
@@ -781,7 +892,13 @@ def normalize_inspection(inspection: Any) -> dict:
         "repair_penalty": None,     # 등급 기반 감점
         "repair_worst_rank": None,
         "repair_unclassified": None,
+        "diagnostics": None,
         "battery_pack_damage": None,
+        "insp_mileage": None, "insp_waterlog": None, "insp_recall": None,
+        "insp_recall_types": None, "insp_comments": None, "insp_tuning": None,
+        "insp_usage_change": None, "insp_serious": None, "insp_vin": None,
+        "insp_accident_flag": None, "insp_simple_repair": None,
+        "insp_needs_repair": None,
     }
     if not inspection:
         return out
@@ -820,11 +937,48 @@ def normalize_inspection(inspection: Any) -> dict:
     out["corrosion_note"] = _near(("부식", "corrosion", "rust"), "부식:")
     out["tire_note"] = _near(("타이어", "트레드", "마모", "tire", "tread"), "타이어:")
 
+    # [2] master 하위의 유용한 필드들
+    md = pick(inspection, "master.detail", "detail", default={}) or {}
+    out["insp_mileage"] = to_int(pick(md, "mileage", "km"))
+    wl = pick(md, "waterlog", "waterLog", "flooding")
+    out["insp_waterlog"] = None if wl is None else bool(wl)
+    out["insp_recall"] = pick(md, "recall", "recallYn")
+    out["insp_recall_types"] = ", ".join(strings_of(
+        pick(md, "recallFullFillTypes", "recallTypes", default=[]))) or None
+    out["insp_comments"] = " / ".join(strings_of(
+        pick(md, "comments", "comment", default=[])))[:400] or None
+    out["insp_tuning"] = ", ".join(strings_of(pick(md, "tuning", default=[]))) or None
+    out["insp_usage_change"] = ", ".join(strings_of(
+        pick(md, "usageChangeTypes", default=[]))) or None
+    out["insp_serious"] = ", ".join(strings_of(
+        pick(md, "seriousTypes", default=[]))) or None
+    out["insp_vin"] = pick(md, "vin", "vinNo")
+    acc_flag = pick(inspection, "master.accdient", "master.accident", "accdient")
+    out["insp_accident_flag"] = None if acc_flag is None else bool(acc_flag)
+    sr = pick(inspection, "master.simpleRepair", "simpleRepair")
+    out["insp_simple_repair"] = None if sr is None else bool(sr)
+
+    # '수리필요' 로 분류된 항목들 — 지금 손봐야 하는 부분이라 중요하다
+    need = []
+    for sec in ("etcs", "inners", "outers"):
+        for item in (pick(inspection, sec) or []):
+            if not isinstance(item, dict):
+                continue
+            if "수리" not in (_title_of(item) or ""):
+                continue
+            for ch in (item.get("children") or []):
+                nm = _title_of(ch) if isinstance(ch, dict) else None
+                st = _status_of(ch) if isinstance(ch, dict) else None
+                if nm:
+                    need.append(f"{nm}({_status_label(st)})" if st else nm)
+    out["insp_needs_repair"] = ", ".join(dict.fromkeys(need)) or None
+
     res = score_repairs(find_repair_entries(inspection))
     out["repair_notes"] = " | ".join(g["note"] for g in res["entries"]) or None
     out["repair_penalty"] = res["penalty"]
     out["repair_worst_rank"] = res["worst_rank"]
     out["repair_unclassified"] = ", ".join(dict.fromkeys(res["unclassified"])) or None
+    out["diagnostics"] = " | ".join(dict.fromkeys(res.get("diagnostics", []))) or None
     out["battery_pack_damage"] = any(g["rank"] == "배터리팩" for g in res["entries"])
     return out
 
@@ -1123,6 +1277,7 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
 
     rec = normalize_record(record)
     insp = normalize_inspection(inspection)
+    _acc_lines, _acc_verdict = describe_accidents(rec)
 
     owner_changes = rec["owner_change_count"]
     my_acc = rec["my_accident_count"]
@@ -1231,6 +1386,21 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "insp_worst_rank": insp["repair_worst_rank"] or "",
         "insp_unclassified": insp["repair_unclassified"] or "",
         "battery_pack_damage": _blank(insp["battery_pack_damage"]),
+        "insp_diagnostics": insp.get("diagnostics") or "",
+        "insp_mileage": _blank(insp.get("insp_mileage")),
+        "insp_waterlog": _blank(insp.get("insp_waterlog")),
+        "insp_recall": _blank(insp.get("insp_recall")),
+        "insp_recall_types": insp.get("insp_recall_types") or "",
+        "insp_comments": insp.get("insp_comments") or "",
+        "insp_tuning": insp.get("insp_tuning") or "",
+        "insp_usage_change": insp.get("insp_usage_change") or "",
+        "insp_serious": insp.get("insp_serious") or "",
+        "insp_vin": insp.get("insp_vin") or "",
+        "insp_accident_flag": _blank(insp.get("insp_accident_flag")),
+        "insp_simple_repair": _blank(insp.get("insp_simple_repair")),
+        "insp_needs_repair": insp.get("insp_needs_repair") or "",
+        "accident_lines": " | ".join(_acc_lines),
+        "accident_type_verdict": _acc_verdict,
         # 최초등록일 (배터리 보증 기준일)
         "first_registration_date": str(first_reg) if first_reg else "",
         "flood_or_total_loss": flood or bool((rec["flood_total_count"] or 0)),

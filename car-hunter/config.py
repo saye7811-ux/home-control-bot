@@ -238,6 +238,15 @@ INSPECTION_STATUS = {
 # 전부 더하면 경미한 외판 수리 여러 건이 골격 수리보다 커지는 왜곡이 생긴다.
 INSPECTION_EXTRA_RATIO = 0.30
 
+# 주행거리 조작 의심 — 성능점검 시점 주행거리가 매물 표시보다 큰 경우.
+# 계기판은 되감기지 않는 한 늘기만 한다. 성능점검이 매물 등록보다 앞서므로
+# 성능점검 km > 표시 km 이면 조작을 의심해야 한다.
+MILEAGE_ROLLBACK = {
+    "tolerance_km": 100,   # 이 이하 차이는 표기 반올림으로 본다
+    "penalty": 35.0,       # 강한 감점
+    "exclude_over_km": 5_000,   # 이 이상 벌어지면 후보에서 제외
+}
+
 # 침수·전손은 감점이 아니라 후보에서 제외한다.
 HARD_EXCLUDE_ON_FLOOD_TOTAL_LOSS = True
 

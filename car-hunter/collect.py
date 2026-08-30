@@ -42,7 +42,11 @@ LISTING_FIELDS = [
     "past_commercial_use",
     "inspection_available", "insp_leak", "insp_corrosion", "insp_tire",
     "insp_repair_notes", "insp_repair_penalty", "insp_worst_rank",
-    "insp_unclassified", "battery_pack_damage",
+    "insp_unclassified", "insp_diagnostics", "battery_pack_damage",
+    "insp_mileage", "insp_waterlog", "insp_recall", "insp_recall_types",
+    "insp_comments", "insp_tuning", "insp_usage_change", "insp_serious",
+    "insp_vin", "insp_accident_flag", "insp_simple_repair", "insp_needs_repair",
+    "accident_lines", "accident_type_verdict",
     "use_history", "record_fields_null",
     "first_registration_date",
     "opt_sunroof", "opt_audio", "opt_hud", "opt_rwsteer",
@@ -488,9 +492,36 @@ def cmd_probe(args) -> int:
         print(f"\n    -> '{label}' 에서 찾았습니다. 전체 저장: data/raw_inspection.json")
         print(f"       {url}")
 
-        print("\n    -- 성능점검 응답 전체 구조 --")
-        for line in _describe(payload_i, max_depth=3)[:120]:
+        print("\n    -- 성능점검 응답 전체 구조 (children 까지 전부) --")
+        for line in _describe(payload_i, max_depth=12)[:400]:
             print("      " + line)
+
+        # 섹션별로 트리를 펼쳐 부위명/상태부호가 어디에 있는지 눈으로 본다
+        for sec in ("inners", "outers", "etcs"):
+            items = payload_i.get(sec) if isinstance(payload_i, dict) else None
+            if items is None:
+                continue
+            print(f"\n    -- {sec}: {len(items)}개 --")
+            if not items:
+                print("      (비어 있음)")
+                continue
+            for i, item in enumerate(items):
+                if not isinstance(item, dict):
+                    print(f"      [{i}] {item!r}")
+                    continue
+                t = api._title_of(item) or "?"
+                st = api._status_of(item)
+                ch = item.get("children") or []
+                print(f"      [{i}] {t}  code={api._code_of(item)}  "
+                      f"status={st or '-'}  children={len(ch)}")
+                for j, c in enumerate(ch):
+                    if isinstance(c, dict):
+                        print(f"          [{i}.{j}] {api._title_of(c) or '?':16} "
+                              f"code={api._code_of(c) or '-':6} "
+                              f"status={api._status_of(c) or '-':4} "
+                              f"raw={ {k: v for k, v in c.items() if k != 'children'} }"[:160])
+                    else:
+                        print(f"          [{i}.{j}] {c!r}")
 
         entries = api.find_repair_entries(payload_i)
         print(f"\n    -- 발견한 (부위, 상태부호) {len(entries)}쌍 --")
@@ -516,6 +547,56 @@ def cmd_probe(args) -> int:
         for k in ("leak_note", "corrosion_note", "tire_note"):
             v = ni.get(k)
             print(f"      {k:16}= {v if v else '(응답에 없음)'}")
+
+        print("\n    -- master.detail 주요 필드 --")
+        for k in ("insp_mileage", "insp_waterlog", "insp_recall", "insp_recall_types",
+                  "insp_tuning", "insp_usage_change", "insp_serious", "insp_vin",
+                  "insp_accident_flag", "insp_simple_repair", "insp_needs_repair",
+                  "insp_comments"):
+            v = ni.get(k)
+            print(f"      {k:20}= {v if v not in (None, '') else '(응답에 없음)'}")
+        if ni.get("insp_mileage") is not None:
+            shown = norm.get("mileage_km")
+            gap = ni["insp_mileage"] - (shown or 0)
+            print(f"\n      성능점검 주행거리 {ni['insp_mileage']:,}km vs "
+                  f"매물 표시 {shown:,}km  -> 격차 {gap:,}km")
+            if gap > 100:
+                warn("성능점검 주행거리가 매물 표시보다 큽니다 — 주행거리 조작 의심")
+
+        # outers 가 비어 있으면 다른 매물로도 확인한다.
+        # 한 대만 보고 '외판 수리 없음' 이라고 단정할 수 없다.
+        if isinstance(payload_i, dict) and not payload_i.get("outers"):
+            others = [p[0] for p in passed[1:6]] if len(passed) > 1 else []
+            if others:
+                print(f"\n    -- outers 가 비어 있어 다른 매물 {len(others)}대로 확인 --")
+                for li in others:
+                    ovid = li.get("vehicle_id")
+                    try:
+                        c2, p2, _, _ = client.raw_get(
+                            api.INSPECT_URL.format(vid=ovid), None, stage=f"insp2:{ovid}")
+                    except (api.EncarUnreachable, RuntimeError):
+                        continue
+                    if c2 != 200 or not isinstance(p2, dict):
+                        print(f"      {ovid}: {_status(c2)}")
+                        continue
+                    ents = api.find_repair_entries(p2)
+                    by_sec: dict[str, int] = {}
+                    for e in ents:
+                        by_sec[e["section"]] = by_sec.get(e["section"], 0) + 1
+                    print(f"      {ovid}: outers={len(p2.get('outers') or [])} "
+                          f"inners={len(p2.get('inners') or [])} "
+                          f"etcs={len(p2.get('etcs') or [])}  발견 {by_sec}")
+                    if p2.get("outers"):
+                        write_json(os.path.join(os.path.dirname(DETAILS_JSON),
+                                                "raw_inspection_outers.json"), p2)
+                        print(f"        -> outers 가 있는 매물을 찾았습니다. "
+                              f"저장: data/raw_inspection_outers.json")
+                        for e in ents:
+                            if e["section"] == "outers":
+                                rk = api.classify_part(e["part"])
+                                print(f"           {e['part']:16} [{e['status']}] "
+                                      f"-> {rk or '미분류'}")
+                        break
     else:
         warn("성능점검 경로를 못 찾았습니다. 누유/부식/타이어와 교환·골격 구분은 "
              "당분간 '응답에 없음' 으로 남습니다.")
@@ -933,6 +1014,61 @@ def cmd_collect(args) -> int:
     return 0
 
 
+def cmd_inspect_file(args) -> int:
+    """저장된 성능점검 JSON 을 네트워크 없이 분석한다.
+
+    probe 를 다시 돌리지 않고 data/raw_inspection.json 만으로
+    부위/상태 파싱이 맞는지 확인할 때 쓴다.
+    """
+    path = args.inspect_file
+    if not os.path.isfile(path):
+        path = os.path.join(os.path.dirname(DETAILS_JSON), "raw_inspection.json")
+    payload = read_json(path)
+    if not payload:
+        die(f"성능점검 JSON 을 못 읽었습니다: {path}")
+
+    print("=" * 74)
+    print(f" 성능점검 파일 분석 — {path}")
+    print("=" * 74)
+    for sec in ("inners", "outers", "etcs"):
+        items = payload.get(sec) if isinstance(payload, dict) else None
+        if items is None:
+            continue
+        print(f"\n[{sec}] {len(items)}개")
+        for i, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            print(f"  [{i}] {api._title_of(item) or '?'}  "
+                  f"code={api._code_of(item)}  status={api._status_of(item) or '-'}  "
+                  f"children={len(item.get('children') or [])}")
+            for j, c in enumerate(item.get("children") or []):
+                if isinstance(c, dict):
+                    rk = api.classify_part(api._title_of(c) or "")
+                    print(f"      [{i}.{j}] {api._title_of(c) or '?':16} "
+                          f"status={api._status_of(c) or '-':4} -> {rk or '미분류'}")
+
+    entries = api.find_repair_entries(payload)
+    res = api.score_repairs(entries)
+    print(f"\n[등급 채점] 감점 {res['penalty']}")
+    for g in res["entries"]:
+        print(f"  {g['note']}   [-{g['penalty']}]")
+    if res.get("diagnostics"):
+        print(f"\n[자기진단 항목] {res['diagnostics']}")
+    if res["unclassified"]:
+        warn(f"미분류 부위: {sorted(set(res['unclassified']))}")
+        print("  이 이름들을 알려주시면 config.INSPECTION_RANKS 에 넣겠습니다.")
+
+    ni = api.normalize_inspection(payload)
+    print("\n[master.detail]")
+    for k in ("insp_mileage", "insp_waterlog", "insp_recall", "insp_recall_types",
+              "insp_tuning", "insp_usage_change", "insp_serious", "insp_vin",
+              "insp_accident_flag", "insp_simple_repair", "insp_needs_repair",
+              "leak_note", "corrosion_note", "tire_note", "insp_comments"):
+        v = ni.get(k)
+        print(f"  {k:20}= {v if v not in (None, '') else '(응답에 없음)'}")
+    return 0
+
+
 def cmd_reparse(args) -> int:
     """이미 받은 data/details.json 을 네트워크 없이 다시 해석한다.
 
@@ -1023,6 +1159,9 @@ def main() -> int:
     p.add_argument("--probe", action="store_true", help="검색 API 1회 호출 후 스키마 덤프")
     p.add_argument("--discover", action="store_true", help="제조사/모델 facet 값 덤프")
     p.add_argument("--fixture", metavar="PATH", help="네트워크 없이 샘플 데이터로 실행")
+    p.add_argument("--inspect-file", dest="inspect_file", nargs="?",
+                   const="data/raw_inspection.json",
+                   help="저장된 성능점검 JSON 을 네트워크 없이 분석")
     p.add_argument("--reparse", action="store_true",
                    help="이미 받은 details.json 을 네트워크 없이 다시 해석 "
                         "(옵션 변환표를 새로 채운 뒤 사용)")
@@ -1041,6 +1180,8 @@ def main() -> int:
             return cmd_probe(args)
         if args.discover:
             return cmd_discover(args)
+        if args.inspect_file:
+            return cmd_inspect_file(args)
         if args.reparse:
             return cmd_reparse(args)
         if args.fixture:

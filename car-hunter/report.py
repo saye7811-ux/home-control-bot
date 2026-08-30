@@ -197,6 +197,34 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
             ref.append('<div class="ref warnref">※ 미분류 부위: '
                        + _e(r["insp_unclassified"]) + ' (등급표에 없음)</div>')
 
+        # 주행거리 조작 — 가장 눈에 띄어야 한다
+        gap = to_int(r.get("mileage_gap_km"))
+        if gap is not None and gap > 100:
+            ref.append('<div class="ref warnref"><b>※ 주행거리 조작 의심: '
+                       f'성능점검 {to_int(r.get("insp_mileage")) or 0:,}km / '
+                       f'매물 표시 {to_int(r.get("mileage_km")) or 0:,}km '
+                       f'({gap:,}km 차이)</b></div>')
+
+        if r.get("insp_needs_repair"):
+            ref.append('<div class="ref warnref">※ 지금 수리 필요: '
+                       + _e(r["insp_needs_repair"])[:160] + '</div>')
+        if r.get("insp_comments"):
+            ref.append('<div class="ref">※ 점검자 코멘트: '
+                       + _e(r["insp_comments"])[:220] + '</div>')
+        if r.get("insp_recall") not in ("", None):
+            rc = "대상" if str(r["insp_recall"]) == "True" else "해당없음"
+            rt = f" ({r['insp_recall_types']})" if r.get("insp_recall_types") else ""
+            ref.append(f'<div class="ref">※ 리콜: {_e(rc)}{_e(rt)}</div>')
+        if r.get("insp_diagnostics"):
+            ref.append('<div class="ref">※ 자기진단: '
+                       + _e(r["insp_diagnostics"])[:140] + '</div>')
+        if r.get("insp_usage_change"):
+            ref.append('<div class="ref warnref">※ 용도 변경 이력: '
+                       + _e(r["insp_usage_change"])[:120] + '</div>')
+        if r.get("accident_type_verdict") and "불일치" in str(r["accident_type_verdict"]):
+            ref.append('<div class="ref warnref">※ 사고 유형 코드 '
+                       + _e(r["accident_type_verdict"])[:180] + '</div>')
+
         if r.get("use_history"):
             ref.append('<div class="ref">※ 용도 이력: '
                        + _e(str(r["use_history"]))[:120] + '</div>')

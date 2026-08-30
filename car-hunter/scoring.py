@@ -228,6 +228,24 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
             minus.append(f"신차가 대비 감가 {dep:.0f}% 에 그침")
     row["score_depreciation"] = round(dep_score, 2)
 
+    # --- 주행거리 조작 의심 ---
+    # 계기판은 되감지 않는 한 늘기만 한다. 성능점검은 매물 등록보다 앞서므로
+    # 성능점검 km 가 표시 km 보다 크면 조작을 의심해야 한다.
+    M = getattr(config, "MILEAGE_ROLLBACK", {})
+    insp_km = to_int(row.get("insp_mileage"))
+    shown_km = to_int(row.get("mileage_km"))
+    row["mileage_gap_km"] = ""
+    rollback_pen = 0.0
+    if insp_km is not None and shown_km is not None:
+        gap = insp_km - shown_km
+        row["mileage_gap_km"] = gap
+        if gap > M.get("tolerance_km", 100):
+            rollback_pen = M.get("penalty", 35.0)
+            minus.append(
+                f"주행거리 조작 의심 — 성능점검 {insp_km:,}km 인데 매물 표시 "
+                f"{shown_km:,}km ({gap:,}km 적게 표시)")
+    row["penalty_mileage_rollback"] = -round(rollback_pen, 2)
+
     # --- 과주행 ---
     annual = to_int(row.get("annual_km"))
     over_pen = 0.0
@@ -273,6 +291,8 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
             bits.append("수리비 금액 응답에 없음")
         row["accident_summary"] = " / ".join(bits)
         minus.append("사고이력: " + row["accident_summary"])
+        for line in [x for x in str(row.get("accident_lines") or "").split(" | ") if x]:
+            minus.append("  · " + line)
 
     # 수리 부위 — 성능점검기록부 법정 등급으로 차등 감점.
     #
@@ -311,7 +331,7 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
     row["seller_airsus_mention"] = _truthy(row.get("has_airsus_keyword"))
 
     # --- 감점 ---
-    penalty = over_pen + acc_pen
+    penalty = over_pen + acc_pen + rollback_pen
     if _truthy(row.get("past_commercial_use")):
         penalty += S["penalty"]["past_commercial_use"]
         bits = []
@@ -322,6 +342,11 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
                 bits.append(f"{lab} {n}회")
         minus.append("과거 용도 이력: " + (", ".join(bits) or "있음"))
     excluded_reasons = []
+    gap = to_int(row.get("mileage_gap_km"))
+    if gap is not None and gap > M.get("exclude_over_km", 5000):
+        excluded_reasons.append(f"주행거리 불일치 {gap:,}km")
+    if _truthy(row.get("insp_waterlog")):
+        excluded_reasons.append("성능점검 침수 표기")
     if _truthy(row.get("flood_or_total_loss")):
         penalty += S["penalty"]["flood_total_loss"]
         excluded_reasons.append("침수/전손 이력")
