@@ -698,11 +698,18 @@ def extract_options(detail: Any,
                 sources.append(arr["path"] + "(자동탐색)")
                 break
 
-    # 3) 이름은 없고 코드만 있으면 변환표로 푼다
-    if not names and codes and code_map:
+    # 3) 코드는 변환표로 푼다.
+    #    이름이 이미 일부 있어도(딜러가 etc 에 적어 둔 것) 반드시 함께 푼다.
+    #    'names 가 비었을 때만' 풀면, etc 에 '스마트키' 한 줄만 있어도
+    #    standard 의 코드 전체가 해석되지 않은 채 남는다.
+    if codes and code_map:
         resolved = [code_map[c] for c in codes if c in code_map]
-        if resolved:
-            names = resolved
+        added = 0
+        for r in resolved:
+            if r not in names:
+                names.append(r)
+                added += 1
+        if added:
             sources.append(f"코드→이름 변환 {len(resolved)}/{len(codes)}건")
 
     src = ", ".join(sources) if sources else "찾지 못함"
@@ -768,13 +775,20 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         airsus_hits.append("(옵션 목록 외 텍스트에서 키워드 발견)")
 
     # 에어서스 판별이 이 프로젝트의 핵심이므로 '모른다' 를 '없다' 로
-    # 뭉개지 않는다. 이름 없이 코드만 왔으면 판별 불가로 표시한다.
+    # 뭉개지 않는다.
+    #
+    # 주의: options.etc 에 딜러가 적어 둔 한글 몇 개가 있다고 해서 옵션을
+    # 다 읽은 것이 아니다. 권위 있는 목록은 options.standard 이고 그게
+    # 코드로 와서 못 읽었다면, 이름이 일부 있어도 여전히 '판별 불가' 다.
+    # 이걸 '옵션명에 없음' 으로 적으면 에어서스 차량이 조용히 탈락한다.
+    unresolved = [c for c in option_codes if not code_map or c not in code_map]
+
     if airsus_hits:
         airsus_status = "확인"
+    elif unresolved:
+        airsus_status = f"판별불가(미해석 코드 {len(unresolved)}개)"
     elif options:
         airsus_status = "옵션명에 없음"
-    elif option_codes:
-        airsus_status = "판별불가(옵션이 코드로만 옴)"
     else:
         airsus_status = "판별불가(옵션 없음)"
 
@@ -829,6 +843,7 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "options": " | ".join(options[:80]),
         "options_count": len(options),
         "option_codes": ",".join(option_codes[:120]),
+        "option_codes_unresolved": len(unresolved),
         "option_source": option_source,
         "origin_price_manwon": origin_price if origin_price is not None else "",
         "warranty": str(warranty)[:200] if warranty else "",

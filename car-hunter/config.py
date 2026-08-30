@@ -101,14 +101,16 @@ TARGETS = [
         "key": "eqe_suv_350",
         "label": "벤츠 EQE SUV 350 4MATIC",
         "car_type": "N",
-        # ↓ 추정값. BMW 가 'BMW' 로 나가는 걸 보면 브랜드 표기를 그대로 쓰는
-        #   방식이라 벤츠는 '벤츠' 일 가능성이 높지만 확인되지 않았다.
+        # 브라우저 실측 확인값. Model 은 'EQE SUV' 가 아니라 차체코드까지
+        # 포함한 'EQE SUV X294' 여야 한다.
         "manufacturer": "벤츠",
         "model_group": "EQE",
-        "model": "EQE SUV",
-        "confirmed": False,
-        "badge_contains": ["350 4MATIC", "350 4매틱", "350 4마틱", "EQE SUV 350"],
-        "badge_excludes": ["500", "43 AMG", "53 AMG", "AMG"],
+        "model": "EQE SUV X294",
+        "confirmed": True,
+        # 실제 트림 표기: "벤츠 EQE SUV X294 EQE350 4MATIC"
+        "badge_contains": ["EQE350", "EQE 350"],
+        # EQE500 은 파라시스 배터리라 애초에 후보에서 뺀다
+        "badge_excludes": ["EQE500", "EQE 500", "AMG"],
         "year_from": 2023,
         "year_to": 2024,
         "airsus_keywords": [

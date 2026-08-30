@@ -26,7 +26,7 @@ import config
 import encar_api as api
 from common import (
     BLOCKED_FLAG, DETAILS_JSON, LISTINGS_CSV, SAMPLES_DIR,
-    die, ensure_dirs, log, read_json, warn, write_csv, write_json,
+    die, ensure_dirs, log, read_csv, read_json, warn, write_csv, write_json,
 )
 
 LISTING_FIELDS = [
@@ -38,7 +38,8 @@ LISTING_FIELDS = [
     "flood_or_total_loss", "rental_or_commercial", "one_owner",
     "encar_diagnosed", "encar_check", "direct_inspected",
     "has_airsus_keyword", "airsus_status", "airsus_keyword_hits",
-    "options_count", "options", "option_codes", "option_source",
+    "options_count", "options", "option_codes", "option_codes_unresolved",
+    "option_source",
     "origin_price_manwon", "warranty", "view_count", "subscribe_count",
     "inspection_summary", "photo_url", "listing_url",
     "detail_fetched", "collected_at",
@@ -805,6 +806,71 @@ def cmd_collect(args) -> int:
     return 0
 
 
+def cmd_reparse(args) -> int:
+    """이미 받은 data/details.json 을 네트워크 없이 다시 해석한다.
+
+    옵션 코드 변환표(data/option_codes.json)를 새로 채웠을 때, 12분짜리
+    수집을 다시 돌리지 않고 즉시 반영하기 위한 것이다.
+    """
+    ensure_dirs()
+    details = read_json(DETAILS_JSON) or {}
+    if not details:
+        die(f"{DETAILS_JSON} 가 없습니다. 먼저 `python collect.py` 를 실행하세요.")
+
+    prev = {str(r.get("vehicle_id")): r for r in read_csv(LISTINGS_CSV)}
+    targets = {t["key"]: t for t in config.TARGETS}
+    code_map = api.load_local_option_map()
+    if code_map:
+        log(f"옵션 코드 변환표 {len(code_map)}개 적용")
+    else:
+        warn("옵션 코드 변환표가 없습니다 (data/option_codes.json). "
+             "`python infer_options.py` 로 만들 수 있습니다.")
+
+    rows, before, after = [], 0, 0
+    for vid, bucket in details.items():
+        if not isinstance(bucket, dict):
+            continue
+        old = prev.get(str(vid), {})
+        target = targets.get(old.get("model_key")) or config.TARGETS[0]
+
+        search = bucket.get("search")
+        listing = api.normalize_listing(search, target) if search else dict(old)
+        listing["model_key"] = target["key"]
+        listing["model_label"] = target["label"]
+
+        if str(old.get("airsus_status", "")).startswith("판별불가"):
+            before += 1
+
+        if bucket.get("detail") is not None:
+            listing.update(api.normalize_detail(
+                str(vid), bucket.get("detail"), bucket.get("record"),
+                bucket.get("inspection"), bucket.get("diagnosis"),
+                target, code_map=code_map))
+            listing["detail_fetched"] = True
+        else:
+            listing["detail_fetched"] = old.get("detail_fetched", False)
+
+        if str(listing.get("airsus_status", "")).startswith("판별불가"):
+            after += 1
+        listing["collected_at"] = old.get("collected_at", "")
+        rows.append(listing)
+
+    write_csv(LISTINGS_CSV, rows, LISTING_FIELDS)
+    log(f"재해석 완료: {LISTINGS_CSV} ({len(rows)}건)")
+
+    detailed = [r for r in rows if r.get("detail_fetched")]
+    ok_air = sum(1 for r in detailed if r.get("airsus_status") == "확인")
+    print(f"\n  상세 확보 {len(detailed)}건 중")
+    print(f"    에어서스 확인   : {ok_air}건")
+    print(f"    판별 불가       : {after}건 (재해석 전 {before}건)")
+    if before and after < before:
+        print(f"    -> {before - after}건이 새로 판별되었습니다.")
+    elif after:
+        print("    -> 변환표에 해당 코드가 없습니다. "
+              "`python infer_options.py` 를 확인하세요.")
+    return 0
+
+
 def cmd_fixture(args) -> int:
     """네트워크 없이 samples/ 픽스처로 listings.csv / details.json 을 만든다."""
     ensure_dirs()
@@ -840,6 +906,9 @@ def main() -> int:
     p.add_argument("--probe", action="store_true", help="검색 API 1회 호출 후 스키마 덤프")
     p.add_argument("--discover", action="store_true", help="제조사/모델 facet 값 덤프")
     p.add_argument("--fixture", metavar="PATH", help="네트워크 없이 샘플 데이터로 실행")
+    p.add_argument("--reparse", action="store_true",
+                   help="이미 받은 details.json 을 네트워크 없이 다시 해석 "
+                        "(옵션 변환표를 새로 채운 뒤 사용)")
     p.add_argument("--model", metavar="KEY", help="config.TARGETS 의 key 하나만 처리")
     p.add_argument("--limit", type=int, help="모델당 최대 건수")
     p.add_argument("--no-detail", action="store_true", help="상세 API 생략")
@@ -855,6 +924,8 @@ def main() -> int:
             return cmd_probe(args)
         if args.discover:
             return cmd_discover(args)
+        if args.reparse:
+            return cmd_reparse(args)
         if args.fixture:
             return cmd_fixture(args)
         return cmd_collect(args)
