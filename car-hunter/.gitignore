@@ -1,6 +1,7 @@
 # 수집/분석 산출물 (개인 데이터)
 data/*.csv
 data/*.json
+data/*.html
 data/BLOCKED.txt
 report.html
 
