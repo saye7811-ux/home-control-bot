@@ -43,6 +43,7 @@ LISTING_FIELDS = [
     "inspection_available", "insp_leak", "insp_corrosion", "insp_tire",
     "insp_repair_notes", "insp_repair_penalty", "insp_worst_rank",
     "insp_unclassified", "insp_diagnostics", "battery_pack_damage",
+    "repair_source", "comment_accident_amount",
     "insp_mileage", "insp_waterlog", "insp_recall", "insp_recall_types",
     "insp_comments", "insp_tuning", "insp_usage_change", "insp_serious",
     "insp_vin", "insp_accident_flag", "insp_simple_repair", "insp_needs_repair",
@@ -533,20 +534,39 @@ def cmd_probe(args) -> int:
             warn("부위/상태 쌍을 못 찾았습니다. 위 구조에서 수리 부위 배열이 "
                  "어디 있는지 알려주시면 파서를 맞추겠습니다.")
 
-        res = api.score_repairs(entries)
-        print(f"\n    -- 등급 채점 결과 (감점 {res['penalty']}) --")
-        for g in res["entries"]:
-            print(f"      {g['note']}   [-{g['penalty']}]")
-        if res["unclassified"]:
-            warn(f"미분류 부위 {len(set(res['unclassified']))}종: "
-                 f"{sorted(set(res['unclassified']))}")
-            print("      이 이름들을 알려주시면 config.INSPECTION_RANKS 에 넣겠습니다.")
+        tree_res = api.score_repairs(entries)
+        if tree_res["entries"]:
+            print(f"\n    -- 트리에서 나온 부위 (참고) --")
+            for g in tree_res["entries"]:
+                print(f"      {g['note']}")
+        else:
+            print("\n    트리에는 판정값이 실려 있지 않습니다 "
+                  "(status 가 전부 '-'). 부위 등급은 코멘트에서 뽑습니다.")
+        if tree_res.get("diagnostics"):
+            print(f"    자기진단 항목: {tree_res['diagnostics']}")
 
         ni = api.normalize_inspection(payload_i)
         print("\n    -- 누유 / 부식 / 타이어 --")
         for k in ("leak_note", "corrosion_note", "tire_note"):
             v = ni.get(k)
             print(f"      {k:16}= {v if v else '(응답에 없음)'}")
+
+        ni_pre = api.normalize_inspection(payload_i)
+        print("\n    -- 점검자 코멘트에서 뽑은 수리 부위 --")
+        print(f"      원문: {(ni_pre.get('insp_comments') or '(없음)')[:250]}")
+        cres = api.score_comment_parts(ni_pre.get("insp_comments") or "")
+        if cres.get("boilerplate_removed"):
+            pass
+        for g in cres["entries"]:
+            print(f"      {g['note']}   [-{g['penalty']}]")
+        if not cres["entries"]:
+            print("      (부위 언급 없음)")
+        print(f"      감점 합계: {cres['penalty']}")
+        if cres.get("accident_mentions"):
+            print(f"      코멘트 속 사고 언급: {cres['accident_mentions']}")
+        if cres.get("unmatched"):
+            warn(f"코멘트에서 못 알아본 단어: {cres['unmatched']}")
+            print("      부위명이면 알려주세요. config.COMMENT_PART_ALIASES 에 넣겠습니다.")
 
         print("\n    -- master.detail 주요 필드 --")
         for k in ("insp_mileage", "insp_waterlog", "insp_recall", "insp_recall_types",
@@ -1047,18 +1067,33 @@ def cmd_inspect_file(args) -> int:
                     print(f"      [{i}.{j}] {api._title_of(c) or '?':16} "
                           f"status={api._status_of(c) or '-':4} -> {rk or '미분류'}")
 
-    entries = api.find_repair_entries(payload)
-    res = api.score_repairs(entries)
-    print(f"\n[등급 채점] 감점 {res['penalty']}")
-    for g in res["entries"]:
-        print(f"  {g['note']}   [-{g['penalty']}]")
-    if res.get("diagnostics"):
-        print(f"\n[자기진단 항목] {res['diagnostics']}")
-    if res["unclassified"]:
-        warn(f"미분류 부위: {sorted(set(res['unclassified']))}")
-        print("  이 이름들을 알려주시면 config.INSPECTION_RANKS 에 넣겠습니다.")
+    tree = api.score_repairs(api.find_repair_entries(payload))
+    if tree["entries"]:
+        print(f"\n[트리에서 나온 부위 (참고)]")
+        for g in tree["entries"]:
+            print(f"  {g['note']}")
+    else:
+        print("\n[트리] 판정값이 실려 있지 않습니다 (status 전부 '-'). "
+              "부위 등급은 코멘트에서 뽑습니다.")
+    if tree.get("diagnostics"):
+        print(f"[자기진단 항목] {tree['diagnostics']}")
 
     ni = api.normalize_inspection(payload)
+
+    print("\n[점검자 코멘트에서 뽑은 수리 부위]")
+    print(f"  원문: {(ni.get('insp_comments') or '(없음)')[:300]}")
+    cres = api.score_comment_parts(ni.get("insp_comments") or "")
+    for g in cres["entries"]:
+        print(f"  {g['note']}   [-{g['penalty']}]")
+    if not cres["entries"]:
+        print("  (부위 언급 없음)")
+    print(f"  감점 합계: {cres['penalty']}")
+    if cres.get("accident_mentions"):
+        print(f"  코멘트 속 사고 언급: {cres['accident_mentions']}")
+    if cres.get("unmatched"):
+        warn(f"못 알아본 단어: {cres['unmatched']}")
+        print("  부위명이면 알려주세요. config.COMMENT_PART_ALIASES 에 넣겠습니다.")
+
     print("\n[master.detail]")
     for k in ("insp_mileage", "insp_waterlog", "insp_recall", "insp_recall_types",
               "insp_tuning", "insp_usage_change", "insp_serious", "insp_vin",

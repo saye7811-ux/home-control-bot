@@ -186,16 +186,20 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         # 무사고 표기라도 실제 수리 부위는 반드시 보여준다.
         # 외판 1랭크 교환은 법적으로 무사고로 표기되기 때문이다.
         if r.get("insp_repair_notes"):
-            ref.append('<div class="ref">※ 성능점검상 수리 부위: '
-                       + _e(str(r["insp_repair_notes"]).replace(" | ", " · "))[:280]
+            src = r.get("repair_source") or "점검자 코멘트"
+            ref.append(f'<div class="ref">※ 수리 부위({_e(src)}): '
+                       + _e(str(r["insp_repair_notes"]).replace(" | ", " · "))[:320]
                        + '</div>')
-        elif str(r.get("insp_repair_penalty")) == "":
-            ref.append('<div class="ref warnref">※ 수리 부위 등급 판정 불가 '
-                       '(성능점검 응답 없음) — 기록부 원본 대조 필요</div>')
+        elif r.get("insp_comments"):
+            ref.append('<div class="ref">※ 점검자 코멘트에 수리 부위 언급 없음</div>')
+        else:
+            ref.append('<div class="ref warnref">※ 수리 부위 확인 불가 '
+                       '(성능점검 코멘트 없음) — 기록부 원본 대조 필요</div>')
 
         if r.get("insp_unclassified"):
-            ref.append('<div class="ref warnref">※ 미분류 부위: '
-                       + _e(r["insp_unclassified"]) + ' (등급표에 없음)</div>')
+            ref.append('<div class="ref warnref">※ 코멘트에서 못 알아본 단어: '
+                       + _e(r["insp_unclassified"])
+                       + ' (구어체 표현 추가 필요)</div>')
 
         # 주행거리 조작 — 가장 눈에 띄어야 한다
         gap = to_int(r.get("mileage_gap_km"))

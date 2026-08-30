@@ -881,6 +881,125 @@ def describe_accidents(rec: dict) -> tuple[list[str], str]:
     return lines, verdict
 
 
+# ---------------------------------------------------------------------------
+# 점검자 코멘트에서 수리 부위 뽑기
+# ---------------------------------------------------------------------------
+def _alias_table() -> list[tuple[str, str]]:
+    """(구어체 표현, 표준 부위명) 을 긴 것부터 정렬해서 돌려준다.
+
+    '휀다 뒤쪽'(쿼터패널)이 '휀다'(프론트펜더)보다 먼저 잡혀야 한다.
+    """
+    import config as _cfg
+    pairs = [(a, canon) for canon, aliases in _cfg.COMMENT_PART_ALIASES.items()
+             for a in aliases]
+    return sorted(pairs, key=lambda t: len(t[0]), reverse=True)
+
+
+def _action_status(text: str) -> str:
+    """코멘트의 수리 방식 단어를 상태 부호로. 없으면 R(방식 미상)."""
+    import config as _cfg
+    for word, code in _cfg.COMMENT_ACTION_WORDS:
+        if word in text:
+            return code
+    return "R"
+
+
+def parse_comment_parts(comment: str) -> dict:
+    """점검자 코멘트에서 수리 부위를 뽑아 등급을 매긴다.
+
+    성능점검 API 가 부위별 판정값을 싣지 않아서, 실제 수리 부위는
+    코멘트 자연어가 유일한 단서다.
+
+        "...내차 피해 1회 (2,693,577원)정비이력 - 뒷문"
+        -> 뒷문 -> 도어 -> 외판 1랭크
+    """
+    import re as _re
+    import config as _cfg
+
+    out = {"entries": [], "unmatched": [], "accident_mentions": [],
+           "sections": [], "boilerplate_removed": False}
+    if not comment or not str(comment).strip():
+        return out
+    text = str(comment)
+
+    # 정형 면책문구 제거. 모든 매물에 붙는 문장이라 이 차의 수리 사실이 아니다.
+    for pat in getattr(_cfg, "COMMENT_BOILERPLATE", []):
+        new_text = _re.sub(pat, " ", text)
+        if new_text != text:
+            out["boilerplate_removed"] = True
+            text = new_text
+
+    # 사고 언급: "내차 피해 1회 (2,693,577원)"
+    for label in ("내차 피해", "타차 가해", "내차피해", "타차가해"):
+        for m in _re.finditer(
+                _re.escape(label) + r"\s*(\d+)\s*회[^0-9]{0,4}\(?\s*([\d,]+)\s*원?\)?", text):
+            out["accident_mentions"].append({
+                "label": label, "count": to_int(m.group(1)),
+                "amount": to_int(m.group(2)),
+            })
+
+    # 부위가 적히는 구간: '정비이력' 같은 표지 뒤쪽
+    segments = []
+    for marker in _cfg.COMMENT_SECTION_MARKERS:
+        idx = 0
+        while True:
+            i = text.find(marker, idx)
+            if i < 0:
+                break
+            seg = text[i + len(marker): i + len(marker) + 60]
+            segments.append(seg)
+            idx = i + len(marker)
+    if not segments:
+        segments = [text]
+    out["sections"] = [sg.strip(" -–—:,.") for sg in segments if sg.strip(" -–—:,.")]
+
+    seen = set()
+    for seg in segments:
+        # 수리 방식은 그 부위가 적힌 구간 안에서만 읽는다.
+        # 코멘트 전체에서 찾으면 다른 문장의 단어를 끌어온다.
+        status = _action_status(seg)
+        remaining = seg
+        for alias, canon in _alias_table():
+            if alias not in remaining:
+                continue
+            if canon in seen:
+                remaining = remaining.replace(alias, " ")
+                continue
+            seen.add(canon)
+            out["entries"].append({
+                "part": canon, "alias": alias, "status": status,
+                "context": seg.strip(" -–—:,.")[:60],
+            })
+            remaining = remaining.replace(alias, " ")
+
+        # 매칭 안 된 한글 토큰 — 구어체 표현을 늘려가기 위한 보고용
+        for tok in _re.split(r"[^가-힣A-Za-z]+", remaining):
+            tok = tok.strip()
+            if (2 <= len(tok) <= 10 and tok not in _cfg.COMMENT_STOPWORDS
+                    and not any(w in tok for w, _ in _cfg.COMMENT_ACTION_WORDS)):
+                out["unmatched"].append(tok)
+    out["unmatched"] = list(dict.fromkeys(out["unmatched"]))
+    return out
+
+
+def score_comment_parts(comment: str) -> dict:
+    """코멘트에서 뽑은 부위를 법정 등급으로 채점한다."""
+    parsed = parse_comment_parts(comment)
+    entries = [{"part": e["part"], "status": e["status"], "alias": e["alias"],
+                "context": e["context"]} for e in parsed["entries"]]
+    res = score_repairs(entries)
+    # 어떤 구어체 표현에서 왔는지 표기에 남긴다
+    by_part = {e["part"]: e["alias"] for e in parsed["entries"]}
+    for g in res["entries"]:
+        alias = by_part.get(g["part"])
+        if alias and alias != g["part"]:
+            g["note"] = f"{alias}({g['part']}) " + g["note"].split(" ", 1)[1]
+    res["unmatched"] = parsed["unmatched"]
+    res["accident_mentions"] = parsed["accident_mentions"]
+    res["sections"] = parsed["sections"]
+    return res
+
+
 def normalize_inspection(inspection: Any) -> dict:
     """성능점검 응답에서 누유 / 부식 / 타이어 / 수리 부위를 뽑는다."""
     out = {
@@ -892,6 +1011,8 @@ def normalize_inspection(inspection: Any) -> dict:
         "repair_penalty": None,     # 등급 기반 감점
         "repair_worst_rank": None,
         "repair_unclassified": None,
+        "repair_source": None,
+        "comment_accident_mentions": None,
         "diagnostics": None,
         "battery_pack_damage": None,
         "insp_mileage": None, "insp_waterlog": None, "insp_recall": None,
@@ -973,12 +1094,23 @@ def normalize_inspection(inspection: Any) -> dict:
                     need.append(f"{nm}({_status_label(st)})" if st else nm)
     out["insp_needs_repair"] = ", ".join(dict.fromkeys(need)) or None
 
-    res = score_repairs(find_repair_entries(inspection))
+    # 부위별 등급은 '점검자 코멘트' 에서 뽑는다.
+    #
+    # 성능점검 API 의 outers 는 비어 있고 inners/etcs 항목은 status 가 '-' 로
+    # 와서 판정값이 실리지 않는다. 트리로는 부위 등급을 매길 수 없다.
+    # inners 는 애초에 차체 부위가 아니라 자기진단(원동기·변속기) 항목이다.
+    # 그래서 트리 기반 채점과 그로 인한 미분류 경고는 쓰지 않는다.
+    tree = score_repairs(find_repair_entries(inspection))
+    out["diagnostics"] = " | ".join(dict.fromkeys(tree.get("diagnostics", []))) or None
+
+    res = score_comment_parts(out.get("insp_comments") or "")
     out["repair_notes"] = " | ".join(g["note"] for g in res["entries"]) or None
     out["repair_penalty"] = res["penalty"]
     out["repair_worst_rank"] = res["worst_rank"]
-    out["repair_unclassified"] = ", ".join(dict.fromkeys(res["unclassified"])) or None
-    out["diagnostics"] = " | ".join(dict.fromkeys(res.get("diagnostics", []))) or None
+    out["repair_source"] = "점검자 코멘트" if res["entries"] else None
+    # 미분류는 코멘트에서 나온 것만 보고한다 (구어체 표현을 늘려가기 위함)
+    out["repair_unclassified"] = ", ".join(res.get("unmatched", [])) or None
+    out["comment_accident_mentions"] = res.get("accident_mentions") or None
     out["battery_pack_damage"] = any(g["rank"] == "배터리팩" for g in res["entries"])
     return out
 
@@ -1399,6 +1531,10 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "insp_accident_flag": _blank(insp.get("insp_accident_flag")),
         "insp_simple_repair": _blank(insp.get("insp_simple_repair")),
         "insp_needs_repair": insp.get("insp_needs_repair") or "",
+        "repair_source": insp.get("repair_source") or "",
+        "comment_accident_amount": _blank(
+            (insp.get("comment_accident_mentions") or [{}])[0].get("amount")
+            if insp.get("comment_accident_mentions") else None),
         "accident_lines": " | ".join(_acc_lines),
         "accident_type_verdict": _acc_verdict,
         # 최초등록일 (배터리 보증 기준일)
