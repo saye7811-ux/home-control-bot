@@ -183,9 +183,23 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
             ref.append('<div class="ref warnref">※ 성능점검(누유·부식·타이어): '
                        '응답에 없음 — 실차에서 직접 확인 필요</div>')
 
-        if r.get("repair_kind") == "" and str(r.get("accident_free")) != "True":
-            ref.append('<div class="ref warnref">※ 교환/골격 수리 구분 불가 '
-                       '— 성능점검기록부 원본 대조 필요</div>')
+        # 무사고 표기라도 실제 수리 부위는 반드시 보여준다.
+        # 외판 1랭크 교환은 법적으로 무사고로 표기되기 때문이다.
+        if r.get("insp_repair_notes"):
+            ref.append('<div class="ref">※ 성능점검상 수리 부위: '
+                       + _e(str(r["insp_repair_notes"]).replace(" | ", " · "))[:280]
+                       + '</div>')
+        elif str(r.get("insp_repair_penalty")) == "":
+            ref.append('<div class="ref warnref">※ 수리 부위 등급 판정 불가 '
+                       '(성능점검 응답 없음) — 기록부 원본 대조 필요</div>')
+
+        if r.get("insp_unclassified"):
+            ref.append('<div class="ref warnref">※ 미분류 부위: '
+                       + _e(r["insp_unclassified"]) + ' (등급표에 없음)</div>')
+
+        if r.get("use_history"):
+            ref.append('<div class="ref">※ 용도 이력: '
+                       + _e(str(r["use_history"]))[:120] + '</div>')
 
         basis = str(r.get("age_basis") or "")
         if "응답에 없음" in basis:

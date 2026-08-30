@@ -41,7 +41,9 @@ LISTING_FIELDS = [
     "past_rental_count", "past_business_count", "past_government_count",
     "past_commercial_use",
     "inspection_available", "insp_leak", "insp_corrosion", "insp_tire",
-    "insp_bolt_on_parts", "insp_frame_parts", "repair_kind",
+    "insp_repair_notes", "insp_repair_penalty", "insp_worst_rank",
+    "insp_unclassified", "battery_pack_damage",
+    "use_history", "record_fields_null",
     "first_registration_date",
     "opt_sunroof", "opt_audio", "opt_hud", "opt_rwsteer",
     "flood_or_total_loss", "rental_or_commercial", "one_owner",
@@ -421,12 +423,22 @@ def cmd_probe(args) -> int:
             print("      " + line)
 
         rec = api.normalize_record(record)
+        nulls = set(rec.get("record_fields_null", []))
         print("\n    -- 우리가 쓰는 항목으로의 매핑 --")
         for std in api.RECORD_FIELDS:
             v = rec.get(std)
-            mark = "" if v is not None else "   <-- 응답에 없음"
+            if v is not None:
+                mark = ""
+            elif std in nulls:
+                # 키는 응답에 있는데 값이 null 인 경우. 0 으로 바꾸지 않는다.
+                mark = "   (응답에 있으나 값이 null — 정보없음)"
+            else:
+                mark = "   <-- 응답에 없음"
             print(f"      {std:22}= {v!r}{mark}")
-        missing = [k for k in api.RECORD_FIELDS if rec.get(k) is None]
+        if rec.get("use_history"):
+            print(f"      {'use_history':22}= {rec['use_history']}")
+        missing = [k for k in api.RECORD_FIELDS
+                   if rec.get(k) is None and k not in nulls]
         if missing:
             warn(f"매핑 못한 항목 {len(missing)}개: {missing}")
             print("      위 '최상위 필드' 목록에서 대응되는 실제 키를 찾아 알려주시면")
@@ -464,16 +476,46 @@ def cmd_probe(args) -> int:
                 hint = f"  (200 이지만 성능점검 키워드 없음, 필드 {len(payload_i) if isinstance(payload_i, dict) else '-'}개)"
         print(f"    {label:22} {_status(code_i):10}{hint}")
 
+    # 확정 경로(INSPECT_URL)에서 이미 받았으면 그것을 먼저 쓴다
+    if got.get("성능점검(inspection)") and not insp_found:
+        insp_found = ("inspection/vehicle (확정 경로)",
+                      api.INSPECT_URL.format(vid=vid), got["성능점검(inspection)"])
+
     if insp_found:
         label, url, payload_i = insp_found
         write_json(os.path.join(os.path.dirname(DETAILS_JSON), "raw_inspection.json"),
                    payload_i)
-        print(f"\n    -> '{label}' 경로에서 찾았습니다. 전체 저장: data/raw_inspection.json")
+        print(f"\n    -> '{label}' 에서 찾았습니다. 전체 저장: data/raw_inspection.json")
+        print(f"       {url}")
+
+        print("\n    -- 성능점검 응답 전체 구조 --")
+        for line in _describe(payload_i, max_depth=3)[:120]:
+            print("      " + line)
+
+        entries = api.find_repair_entries(payload_i)
+        print(f"\n    -- 발견한 (부위, 상태부호) {len(entries)}쌍 --")
+        for e in entries[:30]:
+            rank = api.classify_part(e["part"])
+            tag = f"-> {rank}" if rank else "-> 미분류  <== 등급표에 없는 이름"
+            print(f"      {e['part']:20} [{e['status']}]  {tag}   ({e['path']})")
+        if not entries:
+            warn("부위/상태 쌍을 못 찾았습니다. 위 구조에서 수리 부위 배열이 "
+                 "어디 있는지 알려주시면 파서를 맞추겠습니다.")
+
+        res = api.score_repairs(entries)
+        print(f"\n    -- 등급 채점 결과 (감점 {res['penalty']}) --")
+        for g in res["entries"]:
+            print(f"      {g['note']}   [-{g['penalty']}]")
+        if res["unclassified"]:
+            warn(f"미분류 부위 {len(set(res['unclassified']))}종: "
+                 f"{sorted(set(res['unclassified']))}")
+            print("      이 이름들을 알려주시면 config.INSPECTION_RANKS 에 넣겠습니다.")
+
         ni = api.normalize_inspection(payload_i)
-        for k, v in ni.items():
-            print(f"      {k:22}= {v!r}")
-        print(f"\n    encar_api.INSPECT_URL 을 이 경로로 바꾸면 됩니다:")
-        print(f"      {url}")
+        print("\n    -- 누유 / 부식 / 타이어 --")
+        for k in ("leak_note", "corrosion_note", "tire_note"):
+            v = ni.get(k)
+            print(f"      {k:16}= {v if v else '(응답에 없음)'}")
     else:
         warn("성능점검 경로를 못 찾았습니다. 누유/부식/타이어와 교환·골격 구분은 "
              "당분간 '응답에 없음' 으로 남습니다.")

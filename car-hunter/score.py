@@ -34,8 +34,11 @@ SCORED_FIELDS = [
     "record_available", "accident_free", "accident_summary",
     "accident_my_count", "accident_other_count", "accident_my_cost_won",
     "owner_change_count", "past_commercial_use", "past_rental_count",
-    "insp_leak", "insp_corrosion", "insp_tire", "repair_kind",
-    "insp_bolt_on_parts", "insp_frame_parts",
+    "insp_leak", "insp_corrosion", "insp_tire",
+    "insp_repair_notes", "insp_repair_penalty", "insp_worst_rank",
+    "insp_unclassified", "battery_pack_damage",
+    "excluded", "excluded_reason", "use_history",
+    "plate_change_count", "theft_count", "record_fields_null",
     "first_registration_date", "age_basis",
     "opt_sunroof", "opt_audio", "opt_hud", "opt_rwsteer",
     "flood_or_total_loss", "rental_or_commercial", "one_owner", "encar_diagnosed",
@@ -169,8 +172,16 @@ def main() -> int:
             return True          # 옛 형식 CSV 호환
         return str(v).strip().lower() in ("true", "1", "y", "yes")
 
-    ranked = [r for r in scored_all if _detailed(r)]
-    skipped = len(scored_all) - len(ranked)
+    def _excluded(r) -> bool:
+        return str(r.get("excluded", "")).strip().lower() in ("true", "1")
+
+    ranked = [r for r in scored_all if _detailed(r) and not _excluded(r)]
+    excluded = [r for r in scored_all if _detailed(r) and _excluded(r)]
+    skipped = len(scored_all) - len(ranked) - len(excluded)
+    if excluded:
+        warn(f"후보 제외 {len(excluded)}건 (침수/전손·배터리팩 손상·골격C):")
+        for r in excluded[:5]:
+            warn(f"    {r.get('plate_no') or r.get('vehicle_id')} — {r.get('excluded_reason')}")
     if skipped:
         log(f"순위 대상 {len(ranked)}건 (상세 미확보 {skipped}건은 시세 표본으로만 사용)")
 
@@ -180,7 +191,8 @@ def main() -> int:
     for r in scored_all:
         r.setdefault("rank", "")
 
-    write_csv(SCORED_CSV, ranked + [r for r in scored_all if not _detailed(r)],
+    write_csv(SCORED_CSV,
+              ranked + excluded + [r for r in scored_all if not _detailed(r)],
               SCORED_FIELDS)
     write_json(MARKET_JSON, {m.key: m.__dict__ for m, _ in models})
     log(f"저장: {SCORED_CSV} (순위 {len(ranked)}건 + 표본 {skipped}건)")

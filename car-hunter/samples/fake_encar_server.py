@@ -151,25 +151,36 @@ class Handler(BaseHTTPRequestHandler):
                 "ownerChangeCnt": 1 + vid % 2, "carNoChangeCnt": 0,
                 "totalLossCnt": 0, "floodTotalLossCnt": 0, "floodPartLossCnt": 0,
                 "robberCnt": 0,
-                "loanCnt": 1 if vid % 7 == 0 else 0,      # 과거 대여용
-                "businessCnt": 0, "governmentCnt": 0,
-                "firstDate": "20230115",
+                "loan": 0, "business": 0, "government": 0,
+                "carInfoUse1s": [{"code": "01", "title": "자가용"}],
+                "carInfoUse2s": ([{"code": "02", "title": "대여용(렌터카)"}]
+                                 if vid % 7 == 0 else []),
+                "floodPartLossCnt": None,
+                "firstDate": "2024-02-23",
                 "accidents": [{"date": "20240301", "partCost": 800000,
                                "laborCost": 400000, "paintCost": 250000}]
                               if vid % 3 else [],
                 "historyText": "침수이력: 없음",
             })
 
-        # 성능점검은 이 경로에서만 응답한다 (다른 후보는 전부 404)
-        if re.match(r"^/v1/readside/vehicle/(\d+)/performance$", u.path):
-            return self._send(200, {"result": {
-                "누유": "엔진 오일 누유 없음", "부식": "하부 부식 없음",
-                "타이어": "타이어 마모 보통 (트레드 5mm)",
-                "교환부위": "프론트펜더, 도어",
-            }})
-
-        if re.match(r"^/v1/readside/inspection/vehicle/(\d+)$", u.path):
-            return self._send(404)                       # 일부러 없는 경로
+        m = re.match(r"^/v1/readside/inspection/vehicle/(\d+)$", u.path)
+        if m:
+            vid = int(m.group(1))
+            inners = []
+            if vid % 3 == 0:
+                inners.append({"type": {"code": "S1", "title": "사이드멤버"},
+                               "statusType": "W"})
+            if vid % 2 == 0:
+                inners.append({"type": {"code": "T1", "title": "트렁크리드"},
+                               "statusType": "X"})
+            return self._send(200, {
+                "master": {"detail": {
+                    "engineOilLeak": "없음", "corrosion": "하부 부식 없음",
+                    "tireStatus": "타이어 마모 보통 (트레드 5mm)"}},
+                "inners": inners,
+                "outers": [{"type": {"code": "Q1", "title": "쿼터패널"},
+                            "statusType": "A"}] if vid % 5 == 0 else [],
+            })
 
         if re.match(r"^/v1/readside/diagnosis/vehicle/(\d+)$", u.path):
             return self._send(200, {"diagnosisYn": "Y", "grade": "A"})

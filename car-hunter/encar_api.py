@@ -23,6 +23,7 @@ from common import log, warn, to_int
 # 검색 URL 은 config.ENDPOINTS 에서 가져온다 (premium / general).
 DETAIL_URL = "https://api.encar.com/v1/readside/vehicle/{vid}"
 RECORD_URL = "https://api.encar.com/v1/readside/record/vehicle/{vid}/open"
+# 확인됨 (2026-08): 성능점검은 이 경로에서 온다
 INSPECT_URL = "https://api.encar.com/v1/readside/inspection/vehicle/{vid}"
 DIAGNOSIS_URL = "https://api.encar.com/v1/readside/diagnosis/vehicle/{vid}"
 LISTING_PAGE = "http://www.encar.com/dc/dc_cardetailview.do?carid={vid}"
@@ -543,9 +544,9 @@ RECORD_FIELDS: dict[str, tuple[str, ...]] = {
     "flood_part_count":     ("floodPartLossCnt", "floodPartCnt"),
     "theft_count":          ("robberCnt", "theftCnt", "robberyCnt"),
     # 과거 용도 이력 (현재 판매형태와 별개 — 과거에 그렇게 '등록' 된 적이 있는가)
-    "rental_use_count":     ("loanCnt", "rentCnt", "rentalCnt", "loanCount"),
-    "business_use_count":   ("businessCnt", "businessCount", "commercialCnt"),
-    "government_use_count": ("governmentCnt", "governmentCount"),
+    "rental_use_count":     ("loan", "loanCnt", "rentCnt", "rentalCnt"),
+    "business_use_count":   ("business", "businessCnt", "businessCount"),
+    "government_use_count": ("government", "governmentCnt", "governmentCount"),
     # 최초등록일
     "first_registration":   ("firstDate", "firstRegDate", "firstRegistrationDate",
                              "firstRegisterDate"),
@@ -553,6 +554,12 @@ RECORD_FIELDS: dict[str, tuple[str, ...]] = {
 
 # 사고 상세 배열이 있을 만한 경로
 ACCIDENT_LIST_PATHS = ("accidents", "accidentList", "records", "history", "list")
+
+# 용도 이력 배열 (대여/영업용 등록 이력이 여기에 들어온다)
+USE_HISTORY_PATHS = ("carInfoUse1s", "carInfoUse2s", "useHistory", "usageHistory")
+RENTAL_USE_WORDS = ("대여", "렌트", "렌터", "리스")
+BUSINESS_USE_WORDS = ("영업", "사업", "택시", "화물", "운수")
+GOVERNMENT_USE_WORDS = ("관용", "국가", "지자체")
 
 # 성능점검 부위 분류 — 엔카 성능점검기록부 기준
 BOLT_ON_PARTS = ("후드", "프론트펜더", "펜더", "도어", "트렁크리드", "범퍼",
@@ -577,20 +584,52 @@ def normalize_record(record: Any) -> dict:
     out: dict[str, Any] = {k: None for k in RECORD_FIELDS}
     out["record_available"] = isinstance(record, dict) and bool(record)
     out["record_fields_found"] = []
+    out["record_fields_null"] = []
+    out["use_history"] = []
     out["accident_details"] = []
 
     if not isinstance(record, dict):
         return out
 
+    out["record_fields_null"] = []
     for std, cands in RECORD_FIELDS.items():
+        # 키가 아예 없는 경우와, 키는 있는데 값이 null 인 경우를 구분한다.
+        present = any(c in record for c in cands)
         v = pick(record, *cands)
         if v is None:
+            if present:
+                out["record_fields_null"].append(std)   # 응답에 있으나 값이 없음
             continue
         out["record_fields_found"].append(std)
         if std == "first_registration":
             out[std] = str(v)
         else:
             out[std] = to_int(v)
+
+    # 용도 이력 배열 — 내용을 보고 대여/영업/관용을 판정한다
+    out["use_history"] = []
+    for path in USE_HISTORY_PATHS:
+        arr = pick(record, path)
+        if isinstance(arr, list) and arr:
+            for item in arr[:30]:
+                txt = " ".join(strings_of(item)) if not isinstance(item, str) else item
+                if txt.strip():
+                    out["use_history"].append(txt.strip()[:80])
+            out["record_fields_found"].append(f"use_history({path})")
+
+    # 용도 이력 배열이 있으면 정수 필드보다 우선한다.
+    # loan=0 인데 carInfoUse2s 에 '대여용(렌터카)' 가 들어 있는 경우가 있다.
+    # 정수 필드만 믿으면 대여 이력을 놓친다. 둘 중 큰 값을 쓴다.
+    if out["use_history"]:
+        for field, words in (("rental_use_count", RENTAL_USE_WORDS),
+                             ("business_use_count", BUSINESS_USE_WORDS),
+                             ("government_use_count", GOVERNMENT_USE_WORDS)):
+            n = sum(1 for t in out["use_history"] if any(w in t for w in words))
+            if n:
+                cur = out[field]
+                out[field] = n if cur is None else max(cur, n)
+                if field not in out["record_fields_found"]:
+                    out["record_fields_found"].append(f"{field}(용도이력배열)")
 
     # 사고 건별 상세 (있으면)
     for path in ACCIDENT_LIST_PATHS:
@@ -610,47 +649,183 @@ def normalize_record(record: Any) -> dict:
     return out
 
 
-def normalize_inspection(inspection: Any) -> dict:
-    """성능점검 응답에서 누유 / 부식 / 타이어 / 교환·판금 부위를 뽑는다.
+def _rank_table() -> list[tuple[str, str]]:
+    """(부위명, 랭크키) 목록을 '긴 이름 먼저' 로 정렬해서 돌려준다.
 
-    엔카 성능점검 API 경로가 아직 확인되지 않았다. 응답이 없으면
-    전부 None(=응답에 없음) 으로 둔다.
+    긴 것부터 봐야 '트렁크플로어'(골격A)가 '플로어패널'(골격C)로,
+    '프론트펜더'(외판1)가 '프론트패널'(골격A)로 잘못 잡히지 않는다.
     """
+    import config as _cfg
+    pairs = [(p, rank) for rank, spec in _cfg.INSPECTION_RANKS.items()
+             for p in spec["parts"]]
+    return sorted(pairs, key=lambda t: len(t[0]), reverse=True)
+
+
+def classify_part(name: str) -> str | None:
+    """부위명을 랭크키로. 표에 없으면 None (= 미분류)."""
+    flat = (name or "").replace(" ", "")
+    if not flat:
+        return None
+    for part, rank in _rank_table():
+        if part.replace(" ", "") in flat:
+            return rank
+    return None
+
+
+STATUS_KEYS = ("statustype", "status", "statuscode", "state", "code", "value", "gubun")
+PART_KEYS = ("title", "name", "partname", "part", "label", "typename", "itemname")
+
+
+def _status_of(d: dict) -> str | None:
+    """dict 안에서 상태 부호(X/W/A/U/C/T)를 찾는다."""
+    import config as _cfg
+    for k, v in d.items():
+        if not any(sk in k.lower() for sk in STATUS_KEYS):
+            continue
+        if isinstance(v, str) and v.strip().upper() in _cfg.INSPECTION_STATUS:
+            return v.strip().upper()
+        if isinstance(v, dict):
+            inner = _status_of(v)
+            if inner:
+                return inner
+    return None
+
+
+def _part_of(d: dict) -> str | None:
+    """dict 안에서 부위명을 찾는다."""
+    for k, v in d.items():
+        if isinstance(v, str) and v.strip() and any(pk in k.lower() for pk in PART_KEYS):
+            return v.strip()
+        if isinstance(v, dict):
+            inner = _part_of(v)
+            if inner:
+                return inner
+    return None
+
+
+def find_repair_entries(inspection: Any) -> list[dict]:
+    """성능점검 응답에서 (부위, 상태부호) 쌍을 모두 찾아낸다.
+
+    응답 구조를 모르므로 중첩 구조 전체를 훑으면서 '부위명 같은 값' 과
+    '상태 부호 같은 값' 을 함께 가진 dict 를 수리 기록으로 본다.
+    """
+    out: list[dict] = []
+    seen: set[tuple] = set()
+
+    def walk(obj, path=""):
+        if isinstance(obj, dict):
+            part = _part_of(obj)
+            status = _status_of(obj)
+            if part and status:
+                key = (part, status)
+                if key not in seen:
+                    seen.add(key)
+                    out.append({"part": part, "status": status, "path": path})
+            for k, v in obj.items():
+                walk(v, f"{path}.{k}" if path else k)
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                walk(v, f"{path}[{i}]")
+
+    walk(inspection)
+    return out
+
+
+def score_repairs(entries: list[dict]) -> dict:
+    """수리 기록을 법정 등급으로 분류하고 감점을 계산한다."""
+    import config as _cfg
+
+    graded, unclassified = [], []
+    for e in entries:
+        rank = classify_part(e["part"])
+        if rank is None:
+            unclassified.append(e["part"])
+            continue
+        spec = _cfg.INSPECTION_RANKS[rank]
+        lo, hi = spec["range"]
+        st_label, weight = _cfg.INSPECTION_STATUS.get(e["status"], (e["status"], 0.5))
+        penalty = lo + (hi - lo) * weight
+        graded.append({
+            "part": e["part"], "status": e["status"], "status_label": st_label,
+            "rank": rank, "rank_label": spec["label"], "desc": spec["desc"],
+            "penalty": round(penalty, 1),
+            # 리포트 표기: "사이드멤버 판금/용접(W) — 골격 B랭크, 충돌이 뼈대까지 전달됨"
+            "note": f"{e['part']} {st_label}({e['status']}) — {spec['label']}, {spec['desc']}",
+        })
+
+    graded.sort(key=lambda g: g["penalty"], reverse=True)
+    if graded:
+        total = graded[0]["penalty"] + sum(
+            g["penalty"] for g in graded[1:]) * _cfg.INSPECTION_EXTRA_RATIO
+    else:
+        total = 0.0
+
+    worst = graded[0] if graded else None
+    return {
+        "entries": graded,
+        "unclassified": unclassified,
+        "penalty": round(total, 1),
+        "worst_rank": worst["rank"] if worst else None,
+        "worst_note": worst["note"] if worst else None,
+    }
+
+
+def normalize_inspection(inspection: Any) -> dict:
+    """성능점검 응답에서 누유 / 부식 / 타이어 / 수리 부위를 뽑는다."""
     out = {
         "inspection_available": bool(inspection),
-        "leak_note": None,        # 누유
-        "corrosion_note": None,   # 부식
-        "tire_note": None,        # 타이어
-        "bolt_on_parts": None,    # 단순 교환 부위
-        "frame_parts": None,      # 골격 수리 부위
-        "repair_kind": None,      # 'none' | 'bolt_on' | 'frame'
+        "leak_note": None,
+        "corrosion_note": None,
+        "tire_note": None,
+        "repair_notes": None,       # 사람이 읽는 수리 부위 설명들
+        "repair_penalty": None,     # 등급 기반 감점
+        "repair_worst_rank": None,
+        "repair_unclassified": None,
+        "battery_pack_damage": None,
     }
     if not inspection:
         return out
 
-    strs = strings_of(inspection)
-    joined = " ".join(strs)
+    # 정보가 값이 아니라 '키 이름' 에 들어 있는 경우가 있다.
+    #   {"engineOilLeak": "없음"}  ->  값만 보면 '없음' 이라 누유 항목인 줄 모른다.
+    # 그래서 키와 값을 함께 훑는다.
+    pairs: list[tuple[str, str]] = []
 
-    def _near(words: tuple[str, ...]) -> str | None:
-        hits = [s.strip() for s in strs
-                if any(w in s for w in words) and len(s.strip()) <= 120]
+    def _walk_pairs(obj, key=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                _walk_pairs(v, k)
+        elif isinstance(obj, list):
+            for v in obj:
+                _walk_pairs(v, key)
+        elif obj is not None and str(obj).strip():
+            pairs.append((key, str(obj).strip()))
+
+    _walk_pairs(inspection)
+
+    def _near(words: tuple[str, ...], label: str) -> str | None:
+        hits = []
+        for k, v in pairs:
+            kv = f"{k} {v}".lower()
+            if not any(w.lower() in kv for w in words):
+                continue
+            if len(v) > 120:
+                continue
+            # 키에서만 걸렸으면 무슨 항목인지 라벨을 붙여 준다
+            hits.append(v if any(w in v for w in words if not w.isascii())
+                        else f"{label} {v}")
         return " / ".join(dict.fromkeys(hits))[:200] or None
 
-    out["leak_note"] = _near(("누유", "누수", "오일"))
-    out["corrosion_note"] = _near(("부식", "녹"))
-    out["tire_note"] = _near(("타이어", "트레드", "마모"))
+    out["leak_note"] = _near(("누유", "누수", "oilleak", "leak"), "누유:")
+    out["corrosion_note"] = _near(("부식", "corrosion", "rust"), "부식:")
+    out["tire_note"] = _near(("타이어", "트레드", "마모", "tire", "tread"), "타이어:")
 
-    bolt = sorted({p for p in BOLT_ON_PARTS if p in joined})
-    frame = sorted({p for p in FRAME_PARTS if p in joined})
-    out["bolt_on_parts"] = ", ".join(bolt) or None
-    out["frame_parts"] = ", ".join(frame) or None
-
-    if frame or any(w in joined for w in WELD_WORDS):
-        out["repair_kind"] = "frame"
-    elif bolt:
-        out["repair_kind"] = "bolt_on"
-    else:
-        out["repair_kind"] = "none"
+    res = score_repairs(find_repair_entries(inspection))
+    out["repair_notes"] = " | ".join(g["note"] for g in res["entries"]) or None
+    out["repair_penalty"] = res["penalty"]
+    out["repair_worst_rank"] = res["worst_rank"]
+    out["repair_unclassified"] = ", ".join(dict.fromkeys(res["unclassified"])) or None
+    out["battery_pack_damage"] = any(g["rank"] == "배터리팩" for g in res["entries"])
     return out
 
 
@@ -1035,6 +1210,8 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "accident_other_cost_won": _blank(rec["other_accident_cost"]),
         "owner_change_count": _blank(owner_changes),
         "plate_change_count": _blank(rec["plate_change_count"]),
+        "record_fields_null": ", ".join(rec.get("record_fields_null", [])),
+        "use_history": " | ".join(rec.get("use_history", [])),
         "total_loss_count": _blank(rec["total_loss_count"]),
         "flood_total_count": _blank(rec["flood_total_count"]),
         "flood_part_count": _blank(rec["flood_part_count"]),
@@ -1049,9 +1226,11 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "insp_leak": insp["leak_note"] or "",
         "insp_corrosion": insp["corrosion_note"] or "",
         "insp_tire": insp["tire_note"] or "",
-        "insp_bolt_on_parts": insp["bolt_on_parts"] or "",
-        "insp_frame_parts": insp["frame_parts"] or "",
-        "repair_kind": insp["repair_kind"] or "",
+        "insp_repair_notes": insp["repair_notes"] or "",
+        "insp_repair_penalty": _blank(insp["repair_penalty"]),
+        "insp_worst_rank": insp["repair_worst_rank"] or "",
+        "insp_unclassified": insp["repair_unclassified"] or "",
+        "battery_pack_damage": _blank(insp["battery_pack_damage"]),
         # 최초등록일 (배터리 보증 기준일)
         "first_registration_date": str(first_reg) if first_reg else "",
         "flood_or_total_loss": flood or bool((rec["flood_total_count"] or 0)),

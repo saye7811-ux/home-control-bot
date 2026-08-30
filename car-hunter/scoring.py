@@ -274,16 +274,25 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
         row["accident_summary"] = " / ".join(bits)
         minus.append("사고이력: " + row["accident_summary"])
 
-    # 수리 유형 — 성능점검이 있어야 판별 가능
-    kind = str(row.get("repair_kind") or "")
-    if kind == "frame":
-        acc_pen += A["repair_frame"]
-        minus.append(f"골격/판금 수리 ({row.get('insp_frame_parts') or '부위 미상'})")
-    elif kind == "bolt_on":
-        acc_pen += A["repair_bolt_on"]
-        minus.append(f"단순 교환 ({row.get('insp_bolt_on_parts')})")
-    elif not kind:
-        row["repair_kind_note"] = "성능점검 응답에 없음 — 교환/골격 구분 불가"
+    # 수리 부위 — 성능점검기록부 법정 등급으로 차등 감점.
+    #
+    # 주의: '무사고' 표기를 그대로 믿으면 안 된다. 외판 1랭크(후드·펜더·도어·
+    # 트렁크리드) 교환은 법적으로 무사고로 표기되므로, 무사고 매물이라도
+    # 실제 수리 부위는 반드시 보여준다.
+    insp_pen = to_float(row.get("insp_repair_penalty"))
+    notes = str(row.get("insp_repair_notes") or "")
+    if insp_pen is not None:
+        acc_pen += insp_pen
+        for nt in [x for x in notes.split(" | ") if x]:
+            minus.append(nt)
+        if not notes:
+            plus.append("성능점검상 수리 부위 없음")
+    else:
+        row["repair_kind_note"] = "성능점검 응답에 없음 — 수리 부위 등급 판정 불가"
+
+    if str(row.get("insp_unclassified") or ""):
+        minus.append(f"미분류 부위: {row['insp_unclassified']} (등급표에 없는 이름)")
+
     row["penalty_accident"] = -round(acc_pen, 2)
 
     # --- 가점 ---
@@ -312,9 +321,22 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
             if n:
                 bits.append(f"{lab} {n}회")
         minus.append("과거 용도 이력: " + (", ".join(bits) or "있음"))
+    excluded_reasons = []
     if _truthy(row.get("flood_or_total_loss")):
         penalty += S["penalty"]["flood_total_loss"]
-        minus.append("침수/전손 이력 — 사실상 제외 대상")
+        excluded_reasons.append("침수/전손 이력")
+    if _truthy(row.get("battery_pack_damage")):
+        excluded_reasons.append("고전압 배터리팩 손상")
+    if str(row.get("insp_worst_rank")) == "골격C":
+        excluded_reasons.append("골격 C랭크 수리 (대시패널/플로어패널)")
+
+    if excluded_reasons and getattr(config, "HARD_EXCLUDE_ON_FLOOD_TOTAL_LOSS", True):
+        row["excluded"] = True
+        row["excluded_reason"] = " / ".join(excluded_reasons)
+        minus.append("후보 제외: " + row["excluded_reason"])
+    else:
+        row["excluded"] = False
+        row["excluded_reason"] = ""
     if _truthy(row.get("rental_or_commercial")):
         penalty += S["penalty"]["rental_commercial"]
         minus.append("렌트/영업용 이력")
