@@ -29,6 +29,25 @@ LISTING_PAGE = "http://www.encar.com/dc/dc_cardetailview.do?carid={vid}"
 # 옵션 코드→이름 변환표가 있을 만한 곳 (미확인 — probe 가 시험한다)
 OPTIONS_MASTER_URL = "https://api.encar.com/v1/readside/options"
 
+
+def option_map_candidates(vid: str) -> list[tuple[str, str, dict | None]]:
+    """옵션 코드→이름 변환표가 있을 만한 경로 후보들.
+
+    실제 경로가 확인되면 OPTIONS_MASTER_URL 만 고치면 된다.
+    """
+    d = DETAIL_URL.format(vid=vid)
+    base = "https://api.encar.com/v1/readside"
+    return [
+        ("옵션 마스터", OPTIONS_MASTER_URL, None),
+        ("차량 옵션 상세", d + "/options", None),
+        ("include=OPTIONS만", d, {"include": "OPTIONS"}),
+        ("include 없이 전체", d, None),
+        ("코드 테이블", f"{base}/code/options", None),
+        ("공통 코드", f"{base}/common/options", None),
+        ("메타 옵션", f"{base}/meta/options", None),
+        ("차량 스펙", d + "/spec", None),
+    ]
+
 DETAIL_INCLUDE = (
     "ADVERTISEMENT,CATEGORY,CONDITION,CONTACT,MANAGE,"
     "OPTIONS,PHOTOS,SPEC,PARTNERSHIP,CENTER,VIEW"
@@ -186,7 +205,7 @@ def build_car_segment(target: dict, include_model: bool = True,
 
 def build_query(target: dict, ad_type: str = "B", include_year: bool = True,
                 include_model: bool = True, include_hidden: bool = True,
-                include_car_type: bool = True, include_ad: bool = True) -> str:
+                include_car_type: bool = True, include_ad: bool | None = None) -> str:
     """엔카 검색 q 파라미터.
 
     각 조건을 개별로 끌 수 있다. --probe 가 '어떤 조건이 매물을 걸러내는지'
@@ -196,6 +215,10 @@ def build_query(target: dict, ad_type: str = "B", include_year: bool = True,
     """
     if target.get("raw_q"):
         return target["raw_q"]
+
+    if include_ad is None:
+        import config as _cfg
+        include_ad = getattr(_cfg, "INCLUDE_AD_TYPE", True)
 
     conds: list[str] = []
     if include_hidden:
@@ -322,14 +345,19 @@ class EncarClient:
         return self.get_json(url, params, stage=stage)
 
     def option_code_map(self) -> dict[str, str]:
-        """옵션 코드→이름 변환표를 한 번만 받아 캐시한다.
+        """옵션 코드→이름 변환표를 한 번만 확보해 캐시한다.
+
+        순서: (1) 사용자가 직접 채운 data/option_codes.json
+              (2) 엔카 옵션 마스터 API
 
         엔카가 옵션을 숫자 코드로 내려주는 경우 이 표가 없으면
         에어서스 판별이 불가능하다. 실패해도 수집은 계속한다.
         """
         if getattr(self, "_code_map", None) is not None:
             return self._code_map
-        self._code_map = {}
+        self._code_map = load_local_option_map()
+        if self._code_map:
+            return self._code_map
         try:
             payload = self.get_json(OPTIONS_MASTER_URL, stage="옵션변환표", allow_404=True)
             if payload:
@@ -456,17 +484,40 @@ def normalize_listing(raw: dict, target: dict) -> dict:
     }
 
 
-def matches_target(listing: dict, target: dict) -> bool:
-    """연식 범위 + 트림 키워드로 최종 채택 여부 판정."""
+def match_reason(listing: dict, target: dict) -> str | None:
+    """채택하지 않을 이유를 돌려준다. 채택 대상이면 None.
+
+    이유를 남기는 이유: --probe 에서 '왜 걸러졌는지' 를 보여줘야
+    필터가 과한지 부족한지 판단할 수 있다.
+    """
+    import config as _cfg
+
     y = listing.get("year")
     if y is not None and not (target["year_from"] <= y <= target["year_to"]):
-        return False
+        return f"연식 범위 밖 ({y})"
+
+    hay = f"{listing.get('trim','')} {listing.get('trim_detail','')}"
+    flat = hay.lower().replace(" ", "")
+
+    for bad in (target.get("badge_excludes") or []):
+        if bad.lower().replace(" ", "") in flat:
+            return f"제외 트림 '{bad}' ({hay.strip()})"
 
     needles = target.get("badge_contains") or []
-    if not needles:
-        return True
-    hay = f"{listing.get('trim','')} {listing.get('trim_detail','')}".lower().replace(" ", "")
-    return any(n.lower().replace(" ", "") in hay for n in needles)
+    if needles and not any(n.lower().replace(" ", "") in flat for n in needles):
+        return f"트림 불일치 ({hay.strip() or '표기 없음'})"
+
+    sell = str(listing.get("sell_type") or "")
+    for bad in getattr(_cfg, "EXCLUDE_SELL_TYPES", []):
+        if bad in sell:
+            return f"판매형태 제외 ({sell})"
+
+    return None
+
+
+def matches_target(listing: dict, target: dict) -> bool:
+    """연식 + 트림 + 판매형태로 최종 채택 여부 판정."""
+    return match_reason(listing, target) is None
 
 
 # ---------------------------------------------------------------------------
@@ -499,6 +550,13 @@ def find_arrays(obj: Any, prefix: str = "", out: list | None = None,
     return out
 
 
+def looks_like_option_codes(arr: list, min_len: int = 1) -> bool:
+    """숫자 코드 배열로 보이는가 (엔카는 옵션을 코드로 내려주기도 한다)."""
+    if not arr or len(arr) < min_len:
+        return False
+    return all(isinstance(x, int) or (isinstance(x, str) and x.isdigit()) for x in arr)
+
+
 def looks_like_option_names(arr: list, min_len: int = 1) -> bool:
     """사람이 읽는 옵션명 배열로 보이는가.
 
@@ -507,6 +565,14 @@ def looks_like_option_names(arr: list, min_len: int = 1) -> bool:
     """
     if len(arr) < min_len or not arr or not all(isinstance(x, str) for x in arr):
         return False
+
+    # 숫자 코드 배열('001','002')을 이름으로 오인하면 안 된다.
+    # '001'.isupper() 는 False 라서 아래 대문자 검사만으로는 걸러지지 않는다.
+    # 이걸 놓치면 옵션을 '못 읽은' 상태가 '이름에 없다' 로 둔갑해
+    # 에어서스가 달린 매물이 조용히 탈락한다.
+    if looks_like_option_codes(arr):
+        return False
+
     lens = [len(x) for x in arr]
     if not (1 <= sum(lens) / len(lens) <= 40):
         return False
@@ -514,11 +580,26 @@ def looks_like_option_names(arr: list, min_len: int = 1) -> bool:
     return not all(x.isascii() and x.isupper() for x in arr)
 
 
-def looks_like_option_codes(arr: list, min_len: int = 1) -> bool:
-    """숫자 코드 배열로 보이는가 (엔카는 옵션을 코드로 내려주기도 한다)."""
-    if not arr or len(arr) < min_len:
-        return False
-    return all(isinstance(x, int) or (isinstance(x, str) and x.isdigit()) for x in arr)
+def load_local_option_map() -> dict[str, str]:
+    """data/option_codes.json 을 읽어 코드→이름 표로 만든다.
+
+    변환표 API 를 못 찾았을 때 사용자가 직접 채워 넣을 수 있는 탈출구.
+    두 형식을 모두 받는다:
+        {"001": "에어서스펜션", "002": "통풍시트"}
+        {"options": [{"code": "001", "name": "에어서스펜션"}, ...]}
+    """
+    from common import OPTION_MAP_JSON, read_json, log
+
+    data = read_json(OPTION_MAP_JSON)
+    if not data:
+        return {}
+    if isinstance(data, dict) and all(isinstance(v, str) for v in data.values()):
+        out = {str(k): v for k, v in data.items()}
+    else:
+        out = build_code_map(data)
+    if out:
+        log(f"옵션 코드 변환표를 파일에서 읽었습니다: {OPTION_MAP_JSON} ({len(out)}개)")
+    return out
 
 
 CODE_KEYS = ("code", "cd", "id", "value", "optioncode")

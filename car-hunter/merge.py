@@ -71,6 +71,8 @@ def _load_scored() -> list[dict]:
     rows = read_csv(SCORED_CSV)
     if not rows:
         die(f"{SCORED_CSV} 가 없습니다. 먼저 `python score.py` 를 실행하세요.")
+    # 상세 미확보 매물은 차량번호가 없어 헤이딜러 조회 대상이 될 수 없다.
+    rows = [r for r in rows if str(r.get("rank") or "").strip()]
     from common import to_int
     for r in rows:
         for k in ("price_manwon", "year", "month", "mileage_km", "annual_km",

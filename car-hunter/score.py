@@ -37,7 +37,7 @@ SCORED_FIELDS = [
     "has_airsus_keyword", "airsus_status", "airsus_keyword_hits",
     "option_source", "warranty", "view_count", "subscribe_count",
     "score_value", "score_battery", "bonus_total", "penalty_overrun", "penalty_total",
-    "score_stage2", "score_total", "market_confidence",
+    "score_stage2", "score_total", "market_confidence", "detail_fetched",
     "reasons_plus", "reasons_minus",
     "inspection_summary", "options", "photo_url", "listing_url",
 ]
@@ -144,18 +144,36 @@ def main() -> int:
     if not scored_all:
         die("점수를 매길 매물이 없습니다.")
 
-    scored_all.sort(key=lambda r: r.get("score_total", 0), reverse=True)
-    for i, r in enumerate(scored_all, 1):
+    # 시세 회귀는 전량을 쓰지만, 순위는 상세를 확보한 매물만 대상으로 한다.
+    # 상세가 없으면 무사고/옵션/에어서스를 알 수 없어 가점이 0 이 되고,
+    # 그대로 줄세우면 '정보가 없어서 낮은' 매물과 '실제로 나쁜' 매물이
+    # 구분되지 않는다.
+    def _detailed(r) -> bool:
+        v = r.get("detail_fetched")
+        if v in (None, ""):
+            return True          # 옛 형식 CSV 호환
+        return str(v).strip().lower() in ("true", "1", "y", "yes")
+
+    ranked = [r for r in scored_all if _detailed(r)]
+    skipped = len(scored_all) - len(ranked)
+    if skipped:
+        log(f"순위 대상 {len(ranked)}건 (상세 미확보 {skipped}건은 시세 표본으로만 사용)")
+
+    ranked.sort(key=lambda r: r.get("score_total", 0), reverse=True)
+    for i, r in enumerate(ranked, 1):
         r["rank"] = i
+    for r in scored_all:
+        r.setdefault("rank", "")
 
-    write_csv(SCORED_CSV, scored_all, SCORED_FIELDS)
+    write_csv(SCORED_CSV, ranked + [r for r in scored_all if not _detailed(r)],
+              SCORED_FIELDS)
     write_json(MARKET_JSON, {m.key: m.__dict__ for m, _ in models})
-    log(f"저장: {SCORED_CSV} ({len(scored_all)}건)")
+    log(f"저장: {SCORED_CSV} (순위 {len(ranked)}건 + 표본 {skipped}건)")
 
-    print_top(scored_all, args.top)
+    print_top(ranked, args.top)
 
     if not args.no_report:
-        html = report_mod.build_html(models, scored_all[:max(args.top, 20)], stage="stage2")
+        html = report_mod.build_html(models, ranked[:max(args.top, 20)], stage="stage2")
         with open(REPORT_HTML, "w", encoding="utf-8") as f:
             f.write(html)
         log(f"저장: {REPORT_HTML}")

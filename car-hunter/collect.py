@@ -40,7 +40,8 @@ LISTING_FIELDS = [
     "has_airsus_keyword", "airsus_status", "airsus_keyword_hits",
     "options_count", "options", "option_codes", "option_source",
     "origin_price_manwon", "warranty", "view_count", "subscribe_count",
-    "inspection_summary", "photo_url", "listing_url", "collected_at",
+    "inspection_summary", "photo_url", "listing_url",
+    "detail_fetched", "collected_at",
 ]
 
 # 응답에 없어도 정상인 필드 — 매핑 실패로 경고하지 않는다
@@ -192,11 +193,14 @@ def cmd_probe(args) -> int:
     base = _count_for("전체 조건 (현재 설정)", **base_kw)
     print(f"    {'전체 조건 (현재 설정)':34} {base if base is not None else '-'}건   <- 기준")
 
+    ad_on = getattr(config, "INCLUDE_AD_TYPE", True)
     variants = [
         ("연식 필터 제거",              dict(base_kw, include_year=False)),
         ("Hidden/MultiViewHidden 제거", dict(base_kw, include_hidden=False)),
         ("CarType 제거",               dict(base_kw, include_car_type=False)),
-        ("AdType 제거",                dict(base_kw, include_ad=False)),
+        # 기본 설정에 따라 '빼보기' 또는 '넣어보기' 로 방향을 맞춘다
+        (("AdType 제거" if ad_on else "AdType 추가(광고상품만)"),
+         dict(base_kw, include_ad=not ad_on)),
     ]
     if has_model:
         variants.append(("하위 Model 제거(ModelGroup만)", dict(base_kw, include_model=False)))
@@ -270,34 +274,86 @@ def cmd_probe(args) -> int:
                   f"총건수 {cnt_no} -> {cnt_y}건으로 감소)")
 
     # ---------------- 8. 페이징 ----------------
-    print("\n[8] 페이징(sr 파라미터)이 실제로 작동하는지")
-    q_page = q_year if (code_y == 200 and payload_y) else q_noyear
-    # 페이징은 '작동하는가' 를 보는 것이므로 일부러 작은 페이지로 확인한다.
-    # 큰 페이지를 쓰면 2페이지가 비어서 판정이 되지 않는다.
-    page_size = 5
-    pages = {}
-    for off in (0, page_size):
-        code_p, payload_p, _, _ = client.raw_get(
-            ep["url"], {"count": "true", "q": q_page,
-                        "sr": api.build_sr(off, page_size, config.SORT_KEY)},
-            stage=f"search:page{off}")
-        ids = _ids_of(api.extract_search_results(payload_p)) if payload_p else []
-        pages[off] = ids
-        print(f"    sr=|{config.SORT_KEY}|{off}|{page_size}  ->  {len(ids)}건  {ids}")
+    print("\n[8] 페이징(sr)이 실제로 작동하는지  — 매물이 충분한 넓은 조건으로 확인")
+    # 좁은 조건으로 검사하면 2페이지가 비어 판정 자체가 되지 않는다.
+    # 조건을 최대한 풀어 표본을 충분히 확보한 뒤 페이징만 본다.
+    q_broad = api.build_query(target, ep["ad_type"], include_year=False,
+                              include_model=False, include_hidden=False,
+                              include_car_type=False, include_ad=False)
+    code_b, payload_b, _, _ = client.raw_get(
+        ep["url"], {"count": "true", "q": q_broad, "sr": api.build_sr(0, 1, config.SORT_KEY)},
+        stage="page:total")
+    broad_total = api.extract_total_count(payload_b) if code_b == 200 else None
+    print(f"    검증용 넓은 조건 총 매물: {broad_total}건")
 
-    a, b = pages.get(0, []), pages.get(page_size, [])
-    overlap = set(a) & set(b)
-    if not a:
-        warn("첫 페이지가 비어 페이징을 판정할 수 없습니다.")
-    elif not b:
-        print("    -> 2페이지가 비었습니다. 전체 매물이 1페이지 분량이거나 "
-              "오프셋이 범위를 넘었습니다.")
-    elif overlap:
-        warn(f"두 페이지가 {len(overlap)}건 겹칩니다 — 페이징이 안 먹는 것으로 보입니다.")
+    if not broad_total or broad_total < 10:
+        warn("표본이 적어 페이징을 제대로 검증할 수 없습니다.")
     else:
-        print("    -> 페이징 작동 확인 (두 페이지 중복 0건)")
+        pages = {}
+        for off in (0, 5):
+            _c, _p, _, _ = client.raw_get(
+                ep["url"], {"count": "true", "q": q_broad,
+                            "sr": api.build_sr(off, 5, config.SORT_KEY)},
+                stage=f"page:{off}")
+            ids = _ids_of(api.extract_search_results(_p)) if _p else []
+            pages[off] = ids
+            print(f"    sr=|{config.SORT_KEY}|{off}|5   -> {len(ids)}건  {ids}")
+
+        a, b = pages.get(0, []), pages.get(5, [])
+        overlap = set(a) & set(b)
+        if not a or not b:
+            warn("페이지를 못 받아 판정 불가.")
+        elif overlap:
+            warn(f"두 페이지가 {len(overlap)}건 겹칩니다 — 페이징이 안 먹습니다.")
+        else:
+            print("    -> 페이징 작동 확인 (두 페이지 중복 0건)")
+
+        # 한 번에 최대 몇 건까지 주는지 (전체를 긁으려면 이 상한을 알아야 한다)
+        for size in (50, 100, 200):
+            _c, _p, _, _ = client.raw_get(
+                ep["url"], {"count": "true", "q": q_broad,
+                            "sr": api.build_sr(0, size, config.SORT_KEY)},
+                stage=f"page:size{size}")
+            got_n = len(api.extract_search_results(_p)) if _p else 0
+            cap = "  <-- 요청보다 적게 옴 (서버 상한)" if got_n < min(size, broad_total) else ""
+            print(f"    한 번에 {size}건 요청 -> {got_n}건 수신{cap}")
+            if got_n < min(size, broad_total):
+                break
+
+        # 깊은 오프셋에서도 결과가 나오는지
+        deep = min(broad_total - 5, 200)
+        if deep > 10:
+            _c, _p, _, _ = client.raw_get(
+                ep["url"], {"count": "true", "q": q_broad,
+                            "sr": api.build_sr(deep, 5, config.SORT_KEY)},
+                stage="page:deep")
+            ids_d = _ids_of(api.extract_search_results(_p)) if _p else []
+            print(f"    깊은 오프셋 {deep} -> {len(ids_d)}건 "
+                  f"{'(정상)' if ids_d else '<-- 깊은 페이지를 못 받음'}")
 
     # ---------------- 9. 상세 API ----------------
+    # 상세 조회는 '실제로 채택될' 매물로 한다. 첫 결과가 M70 리스 매물이면
+    # 진단이 엉뚱한 차를 보게 된다.
+    passed, rejected = [], []
+    for r in results:
+        li = api.normalize_listing(r, target)
+        why = api.match_reason(li, target)
+        (rejected if why else passed).append((li, why))
+
+    print(f"\n    이번 응답 {len(results)}건 중 채택 {len(passed)}건 / 제외 {len(rejected)}건")
+    for li, why in rejected[:6]:
+        print(f"      제외: {li.get('trim') or '?':16} {li.get('sell_type') or '':8} {why}")
+    if rejected and len(rejected) > 6:
+        print(f"      ... 외 {len(rejected)-6}건")
+
+    if passed:
+        norm = passed[0][0]
+    elif not norm.get("vehicle_id"):
+        warn("채택된 매물이 없어 상세 API 를 시험하지 못했습니다.")
+        return 0
+    else:
+        warn("조건을 통과한 매물이 없어 첫 매물로 상세 API 만 시험합니다.")
+
     vid = norm.get("vehicle_id")
     if not vid:
         warn("매물 ID 를 못 찾아 상세 API 를 시험하지 못했습니다.")
@@ -373,12 +429,7 @@ def cmd_probe(args) -> int:
     if not names and codes:
         warn("옵션이 '이름' 없이 '코드' 로만 옵니다. 코드→이름 변환표가 필요합니다.")
         print("\n    코드 변환표가 있을 만한 경로를 시험합니다:")
-        for label, url, params in [
-            ("옵션 마스터", api.OPTIONS_MASTER_URL, None),
-            ("차량 옵션 상세", api.DETAIL_URL.format(vid=vid) + "/options", None),
-            ("include=OPTIONS만", api.DETAIL_URL.format(vid=vid), {"include": "OPTIONS"}),
-            ("include 없이 전체", api.DETAIL_URL.format(vid=vid), None),
-        ]:
+        for label, url, params in api.option_map_candidates(vid):
             # 후보 경로 하나가 죽어도 진단 전체를 날리지 않는다.
             try:
                 code_o, payload_o, snip_o, _ = client.raw_get(url, params, stage=f"opt:{label}")
@@ -534,6 +585,38 @@ def _unreachable_msg(e, collected: int | None = None) -> str:
 # ---------------------------------------------------------------------------
 # 본 수집
 # ---------------------------------------------------------------------------
+def _pick_for_detail(rows: list[dict], target: dict, top_n: int) -> list[dict]:
+    """상세를 받을 매물을 고른다.
+
+    검색 결과만으로 계산 가능한 항목(시세 잔차 + 배터리 보증 잔여)으로
+    임시 순위를 매긴다. 무사고/옵션 같은 가점은 상세가 있어야 알 수 있으므로
+    여기서는 쓸 수 없다.
+    """
+    import scoring
+    from common import to_float, to_int
+
+    if len(rows) <= top_n:
+        return list(rows)
+
+    enriched = [scoring.enrich(dict(r)) for r in rows]
+    market = scoring.fit_market(enriched, target["key"], target["label"])
+
+    scored = []
+    for orig, e in zip(rows, enriched):
+        sc = 0.0
+        pred = market.predict(to_float(e.get("age_years")), to_int(e.get("mileage_km")))
+        price = to_float(e.get("price_manwon"))
+        if pred and price:
+            sc += (pred - price) / pred * 100.0       # 저평가일수록 높게
+        frac = to_float(e.get("battery_remaining_pct"))
+        if frac is not None:
+            sc += frac / 10.0                         # 보증 잔여를 보조 지표로
+        scored.append((sc, orig))
+
+    scored.sort(key=lambda t: t[0], reverse=True)
+    return [r for _, r in scored[:top_n]]
+
+
 def collect_target(client, target: dict, limit: int, with_detail: bool,
                    details_sink: dict) -> list[dict]:
     """한 차종을 수집한다.
@@ -610,11 +693,30 @@ def collect_target(client, target: dict, limit: int, with_detail: bool,
         return rows
 
     if not with_detail:
+        for r in rows:
+            r["detail_fetched"] = False
+            r["collected_at"] = datetime.now().isoformat(timespec="seconds")
         return rows
 
-    for i, listing in enumerate(rows, 1):
+    # 상세는 매물당 4회 요청이라 전량 조회하면 시간이 폭발한다.
+    # 검색 결과만으로 매길 수 있는 1차 점수(시세 잔차 + 배터리 잔여)로
+    # 상위 N 대만 고른다. 나머지는 시세 회귀 표본으로만 쓴다.
+    top_n = int(config.COLLECT.get("detail_top_n", 50))
+    picked = _pick_for_detail(rows, target, top_n)
+    picked_ids = {r["vehicle_id"] for r in picked}
+
+    est_min = len(picked) * 4 * config.COLLECT["request_interval_sec"] / 60
+    log(f"  상세 조회 대상 {len(picked)}/{len(rows)}건 (예상 {est_min:.0f}분)")
+    if len(rows) > len(picked):
+        log(f"  나머지 {len(rows) - len(picked)}건은 시세 회귀 표본으로만 사용합니다")
+
+    for r in rows:
+        r["detail_fetched"] = r["vehicle_id"] in picked_ids
+        r["collected_at"] = datetime.now().isoformat(timespec="seconds")
+
+    for i, listing in enumerate(picked, 1):
         vid = listing["vehicle_id"]
-        log(f"  상세 {i}/{len(rows)} (id={vid})")
+        log(f"  상세 {i}/{len(picked)} (id={vid})")
         detail = client.detail(vid)
         record = client.record(vid)
         inspection = client.inspection(vid)
@@ -626,15 +728,17 @@ def collect_target(client, target: dict, limit: int, with_detail: bool,
 
         listing.update(api.normalize_detail(vid, detail, record, inspection,
                                             diagnosis, target, code_map=code_map))
+        listing["detail_fetched"] = True
         listing["collected_at"] = datetime.now().isoformat(timespec="seconds")
 
-    undet = [r["vehicle_id"] for r in rows
+    detailed = [r for r in rows if r.get("detail_fetched")]
+    undet = [r["vehicle_id"] for r in detailed
              if str(r.get("airsus_status", "")).startswith("판별불가")]
     if undet:
         warn(f"에어서스 판별 불가 {len(undet)}건 — 옵션이 코드로만 왔고 변환표가 없습니다. "
              f"`--probe` 의 [10] 출력을 확인하세요.")
 
-    missing_plate = [r["vehicle_id"] for r in rows if not r.get("plate_no")]
+    missing_plate = [r["vehicle_id"] for r in detailed if not r.get("plate_no")]
     if missing_plate:
         warn(f"차량번호 미확보 {len(missing_plate)}건 — 상세 응답 키 확인 필요 "
              f"(예: {missing_plate[:3]})")

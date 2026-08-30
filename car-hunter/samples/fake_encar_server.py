@@ -26,10 +26,11 @@ MODEL_GROUPS = {"BMW": [("iX", 42), ("i4", 31), ("iX3", 12)],
                 "벤츠": [("EQE", 27), ("EQS", 14), ("EQB", 9)]}
 MODELS = {"EQE": [("EQE SUV", 15), ("EQE 세단", 12)], "iX": [("iX", 42)]}
 
-BADGES = ["xDrive50", "xDrive40", "M60"]
+BADGES = ["xDrive50", "xDrive40", "xDrive M70", "xDrive50"]
+SELL_TYPES = ["일반", "일반", "리스", "렌트"]
 
 
-def make_listings(n=40):
+def make_listings(n=400):
     out = []
     for i in range(n):
         year = 2021 + (i % 5)                 # 2021~2025 (범위 밖도 섞임)
@@ -39,8 +40,8 @@ def make_listings(n=40):
             "Manufacturer": "BMW",
             "ModelGroup": "iX",
             "Model": "iX",
-            "Badge": BADGES[i % 3],
-            "BadgeDetail": BADGES[i % 3] + " 기본형",
+            "Badge": BADGES[i % 4],
+            "BadgeDetail": BADGES[i % 4] + " 기본형",
             "FuelType": "전기",
             "Year": int(f"{year}{month:02d}"),
             "FormYear": str(year),
@@ -48,7 +49,7 @@ def make_listings(n=40):
             "Price": 9500 - i * 70,
             "OfficeCityState": ["경기", "서울", "인천"][i % 3],
             "Photo": f"/carpicture/ce{39100000+i}/001.jpg",
-            "SellType": "일반",
+            "SellType": SELL_TYPES[i % 4],
         })
     return out
 
@@ -96,6 +97,10 @@ class Handler(BaseHTTPRequestHandler):
             if mf and mf.group(1) != "BMW":               # 표본은 BMW 뿐
                 rows = []
 
+            if "AdType." in q:                            # 광고상품 매물만 (극소수)
+                rows = [r for r in rows if int(r["Id"]) % 47 == 0]
+
+            limit = min(limit, 100)                       # 서버 페이지 상한
             page = rows[offset:offset + limit]            # 페이징 실제 적용
             resp = {"Count": len(rows), "SearchResults": page,
                     "ManufacturerSet": [{"Value": v, "Count": c} for v, c in MANUFACTURERS]}
@@ -125,8 +130,10 @@ class Handler(BaseHTTPRequestHandler):
                 "spec": {"mileage": row["Mileage"], "fuelName": "전기"},
                 "advertisement": {"price": row["Price"]},
                 # 실제 엔카에서 보고된 형태: 옵션이 '이름' 이 아니라 숫자 코드
-                "options": {"type": "CAR", "standard": [1, 7, 23, 45, 77],
-                            "choice": [3, 9], "etc": []},
+                "options": {"type": "CAR",
+                            "standard": [f"{c:03d}" for c in
+                                         (1, 2, 5, 6, 7, 8, 10, 11, 23, 45, 77)],
+                            "tuning": ["023", "024"], "etc": []},
                 "manage": {"viewCount": 1520 + int(vid[-2:]), "subscribeCount": 33},
                 "advertisement": {"price": row["Price"], "encarCheck": "Y",
                                   "directInspected": "N"},
@@ -138,15 +145,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"myAccidentCnt": 0, "otherAccidentCnt": 0,
                                     "myAccidentCost": 0, "ownerChangeCnt": 1,
                                     "historyText": "무사고 / 침수이력: 없음"})
-
-        if u.path == "/v1/readside/options":
-            return self._send(200, {"options": [
-                {"code": 1, "name": "에어서스펜션"},
-                {"code": 7, "name": "인테그럴 액티브 스티어링"},
-                {"code": 23, "name": "하만카돈 사운드"},
-                {"code": 45, "name": "파노라마 선루프"},
-                {"code": 77, "name": "헤드업 디스플레이"},
-            ]})
 
         if re.match(r"^/v1/readside/inspection/vehicle/(\d+)$", u.path):
             return self._send(404)                       # 일부러 없는 경로

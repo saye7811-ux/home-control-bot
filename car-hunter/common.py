@@ -22,6 +22,7 @@ MERGED_CSV = os.path.join(DATA_DIR, "merged.csv")
 MARKET_JSON = os.path.join(DATA_DIR, "market.json")
 BLOCKED_FLAG = os.path.join(DATA_DIR, "BLOCKED.txt")
 EXTRACTED_JSON = os.path.join(HIDDEN_DIR, "extracted.json")
+OPTION_MAP_JSON = os.path.join(DATA_DIR, "option_codes.json")
 REPORT_HTML = os.path.join(BASE_DIR, "report.html")
 
 
