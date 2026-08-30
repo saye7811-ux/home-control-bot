@@ -38,7 +38,7 @@ HIDDEN_FIELDS = [
     "hidden_insurance_summary", "hidden_notes", "hidden_source_image",
     "adj_battery_maker", "adj_airsus", "adj_insurance", "hidden_adjust_total",
 ]
-MERGED_FIELDS = SCORED_FIELDS + HIDDEN_FIELDS
+MERGED_FIELDS = SCORED_FIELDS + HIDDEN_FIELDS + ["adj_accident_revert"]
 
 TEMPLATE = {
     "_설명": [
@@ -232,7 +232,14 @@ def cmd_apply(args) -> int:
         warn(f"매칭 실패 {len(unmatched)}건: {unmatched}")
         warn("차량번호 표기를 data/scored.csv 의 plate_no 와 맞춰주세요.")
 
-    rows.sort(key=lambda r: float(r.get("score_total") or 0), reverse=True)
+    # 적정가 대비 차액으로 다시 줄세운 뒤 저장해야 CSV 의 rank 가 맞는다
+    def _gap(r) -> float:
+        try:
+            return float(r.get("value_gap_manwon"))
+        except (TypeError, ValueError):
+            return -9e9
+
+    rows.sort(key=_gap, reverse=True)
     for i, r in enumerate(rows, 1):
         r["rank"] = i
 
@@ -263,22 +270,32 @@ def cmd_apply(args) -> int:
     log(f"저장: {REPORT_HTML}")
 
     print("\n" + "━" * 78)
-    print(f" 최종 순위 (숨은이력 반영 {applied}건)")
+    print(f" 최종 순위 — 적정가 대비 (숨은이력 반영 {applied}건)")
+    print("━" * 78)
+    print(" ※ 금액은 절대값이 아니라 매물 간 상대 비교용입니다.")
     print("━" * 78)
     for r in rows[: args.top]:
+        gap = r.get("value_gap_manwon")
+        fair = r.get("fair_price_manwon")
+        price = r.get("price_manwon")
+        try:
+            gap_f, fair_f, price_f = float(gap), float(fair), float(price)
+        except (TypeError, ValueError):
+            print(f"  #{r['rank']:<3}【{r.get('plate_no') or '미확보':^12}】 적정가 산출 불가")
+            continue
         delta = float(r.get("hidden_adjust_total") or 0)
-        mark = f"  ({delta:+.1f})" if delta else ""
+        mark = f"  (헤이딜러 {delta:+,.0f})" if delta else ""
         bits = []
         if r.get("hidden_battery_maker"):
             bits.append(f"배터리 {r['hidden_battery_maker']}")
         if r.get("hidden_airsus") not in ("", None):
             bits.append("에어서스 O" if str(r["hidden_airsus"]) == "True" else "에어서스 X")
-        if r.get("hidden_insurance_won") not in ("", None):
-            bits.append(f"수리 {int(r['hidden_insurance_won']):,}원")
-        print(f"  #{r['rank']:<3}【{r.get('plate_no') or '미확보':^12}】"
-              f" {float(r['score_total']):>6.1f}{mark:<9} "
-              f"{r.get('model_label')} · {fmt_manwon(r.get('price_manwon'))}"
+        print(f"  #{r['rank']:<3}【{r.get('plate_no') or '미확보':^12}】 "
+              f"적정가 {fair_f:>6,.0f} / 판매가 {price_f:>6,.0f} = {gap_f:+,.0f}만원{mark}")
+        print(f"       {r.get('model_label')}"
               + (f"  |  {' · '.join(bits)}" if bits else ""))
+        if r.get("price_unknowns"):
+            print(f"       ! 정보없음: {r['price_unknowns'][:100]}")
     print()
     return 0
 

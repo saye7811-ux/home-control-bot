@@ -166,6 +166,138 @@ def enrich(row: dict) -> dict:
     return row
 
 
+# ---------------------------------------------------------------------------
+# 적정가 산출 — 흠결을 금액으로 환산한다
+# ---------------------------------------------------------------------------
+def _rank_pct(rank: str, status: str) -> float:
+    """사고 등급 + 상태부호 -> 차값 대비 할인율(%)."""
+    lo, hi = config.PRICING["accident_rank_pct"].get(rank, (0.0, 0.0))
+    _label, weight = config.INSPECTION_STATUS.get(status, (status, 0.5))
+    return lo + (hi - lo) * weight
+
+
+def compute_fair_price(row: dict, market: MarketModel) -> dict:
+    """기준 시세에서 흠결을 금액으로 빼 적정가를 만든다.
+
+    반환에는 항목별 내역(breakdown)과, 값을 몰라서 반영하지 못한 항목
+    목록(unknowns)이 함께 들어간다. 모르는 항목을 0 으로 처리하면
+    '흠결 없음' 과 구분되지 않는다.
+    """
+    P = config.PRICING
+    age = to_float(row.get("age_years"))
+    km = to_int(row.get("mileage_km"))
+    price = to_float(row.get("price_manwon"))
+
+    out = {"breakdown": [], "unknowns": [], "fair_price_manwon": "",
+           "value_gap_manwon": "", "baseline_manwon": ""}
+    if age is None or km is None or not price:
+        out["unknowns"].append("연식/주행거리/가격 결측 — 적정가 산출 불가")
+        return out
+
+    # 1) 기준 시세 — 같은 연식, '평균' 주행거리일 때의 시세
+    expected_km = int(age * P["expected_annual_km"])
+    baseline = market.predict(age, expected_km)
+    if baseline is None:
+        out["unknowns"].append("시세 회귀 불가 — 적정가 산출 불가")
+        return out
+    out["baseline_manwon"] = round(baseline, 0)
+    out["expected_km"] = expected_km
+    out["breakdown"].append(
+        (f"기준 시세 (동일 연식 · 평균주행 {expected_km:,}km)", round(baseline, 0)))
+
+    fair = baseline
+
+    # 2) 주행거리 — 회귀식의 km 계수를 그대로 쓴다
+    at_actual = market.predict(age, km)
+    mil_adj = (at_actual - baseline) if at_actual is not None else 0.0
+    if not P.get("allow_low_mileage_premium", True):
+        mil_adj = min(mil_adj, 0.0)
+    if abs(mil_adj) >= 1:
+        diff = km - expected_km
+        label = ("과주행" if diff > 0 else "주행거리 적음")
+        out["breakdown"].append(
+            (f"{label} {diff/10000:+.1f}만km", round(mil_adj, 0)))
+        fair += mil_adj
+
+    # 3) 사고이력 — 등급 기반 %와 수리비 기반 중 하나를 고른다
+    known_record = str(row.get("record_available", "")).strip().lower() in ("true", "1", "y")
+    rank = str(row.get("insp_worst_rank") or "")
+    status = str(row.get("insp_worst_status") or "R")
+    my_cost_won = to_int(row.get("accident_my_cost_won"))
+    my_n = to_int(row.get("accident_my_count"))
+    ot_n = to_int(row.get("accident_other_count"))
+
+    rank_amt = (baseline * _rank_pct(rank, status) / 100.0) if rank else 0.0
+    cost_amt = ((my_cost_won / 10000.0) * P["accident_cost_multiplier"]
+                if my_cost_won else 0.0)
+
+    if P.get("accident_combine") == "sum":
+        acc_amt = rank_amt + cost_amt
+    else:
+        acc_amt = max(rank_amt, cost_amt)
+
+    if acc_amt >= 1:
+        bits = []
+        if my_n or ot_n:
+            bits.append(f"내차 {my_n or 0}건 / 타차 {ot_n or 0}건")
+        if my_cost_won:
+            bits.append(f"수리비 {my_cost_won/10000:,.0f}만원")
+        if rank:
+            bits.append(f"{config.INSPECTION_RANKS[rank]['label']}")
+        out["breakdown"].append(("사고이력 " + " · ".join(bits), -round(acc_amt, 0)))
+        fair -= acc_amt
+
+    if not known_record:
+        # 모르는 것을 무사고로 치지 않는다. 보수적으로 깎고 사실을 남긴다.
+        unk = baseline * P["unknown_record_pct"] / 100.0
+        out["breakdown"].append(("보험이력 미확인 (보수적 반영)", -round(unk, 0)))
+        out["unknowns"].append("보험이력을 확인하지 못했습니다 — 실제 사고이력이 "
+                               "있다면 적정가는 더 낮아집니다")
+        fair -= unk
+    elif not rank and (my_n or ot_n):
+        out["unknowns"].append("사고는 있으나 수리 부위를 모릅니다 "
+                               "(점검자 코멘트에 부위 언급 없음)")
+
+    # 4) 배터리 보증 잔여 부족
+    B = P["battery"]
+    frac = to_float(row.get("battery_remaining_pct"))
+    if frac is None:
+        out["unknowns"].append("배터리 보증 잔여를 계산하지 못했습니다")
+    elif frac < B["reference_remaining_pct"]:
+        months = (B["reference_remaining_pct"] - frac) / 100.0 * 96.0
+        amt = months * B["manwon_per_month"]
+        out["breakdown"].append(
+            (f"배터리 보증 잔여 부족 ({frac:.0f}% · 기준 {B['reference_remaining_pct']:.0f}%)",
+             -round(amt, 0)))
+        fair -= amt
+
+    # 5) 소유/용도 이력
+    owners = to_int(row.get("owner_change_count"))
+    if owners is None:
+        out["unknowns"].append("소유자 변경 횟수 정보없음")
+    elif owners > 1:
+        amt = baseline * P["owner_change_pct_per_extra"] / 100.0 * (owners - 1)
+        out["breakdown"].append((f"소유자 변경 {owners}회", -round(amt, 0)))
+        fair -= amt
+
+    if str(row.get("past_commercial_use")) == "True":
+        amt = baseline * P["past_commercial_pct"] / 100.0
+        out["breakdown"].append(("과거 대여·영업용 등록", -round(amt, 0)))
+        fair -= amt
+    elif row.get("past_commercial_use") in ("", None):
+        out["unknowns"].append("과거 용도 이력 정보없음")
+
+    if str(row.get("rental_or_commercial")) == "True":
+        amt = baseline * P["current_lease_pct"] / 100.0
+        out["breakdown"].append(("현재 리스·렌트 매물", -round(amt, 0)))
+        fair -= amt
+
+    out["breakdown"].append(("= 적정가", round(fair, 0)))
+    out["fair_price_manwon"] = round(fair, 0)
+    out["value_gap_manwon"] = round(fair - price, 0)
+    return out
+
+
 def score_row(row: dict, market: MarketModel, target: dict) -> dict:
     """1차(2단계) 점수 산출. row 를 제자리에서 갱신하고 반환한다."""
     S = config.SCORING
@@ -369,7 +501,20 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
 
     total = value_score + battery_score + dep_score + bonus - penalty
     row["score_stage2"] = round(total, 2)
-    row["score_total"] = round(total, 2)
+    row["score_points"] = round(total, 2)
+
+    # --- 적정가 환산 (주 판단 지표) ---
+    fp = compute_fair_price(row, market)
+    row["baseline_manwon"] = fp.get("baseline_manwon", "")
+    row["fair_price_manwon"] = fp.get("fair_price_manwon", "")
+    row["value_gap_manwon"] = fp.get("value_gap_manwon", "")
+    _bd = fp.get("breakdown", [])
+    row["price_breakdown"] = " || ".join(
+        f"{lab}={amt:,.0f}" if (i == 0 or i == len(_bd) - 1) else f"{lab}={amt:+,.0f}"
+        for i, (lab, amt) in enumerate(_bd))
+    row["price_unknowns"] = " ; ".join(fp.get("unknowns", []))
+    row["fair_gap_stage2"] = fp.get("value_gap_manwon", "")
+    row["score_total"] = fp.get("value_gap_manwon", "") or 0
     row["reasons_plus"] = " ; ".join(plus)
     row["reasons_minus"] = " ; ".join(minus)
     row["market_confidence"] = "낮음(표본부족)" if market.low_confidence else "보통"
@@ -403,9 +548,15 @@ def insurance_adjust(total_won: int | None) -> tuple[float, str]:
 
 
 def apply_hidden(row: dict, hidden: dict) -> dict:
-    """헤이딜러 숨은이력 추출 결과를 반영해 최종 점수 재계산."""
-    plus = [s for s in (row.get("reasons_plus") or "").split(" ; ") if s]
-    minus = [s for s in (row.get("reasons_minus") or "").split(" ; ") if s]
+    """헤이딜러 숨은이력을 적정가에 금액으로 반영하고 최종 판단을 다시 낸다."""
+    H = config.HIDDEN_PRICING
+    plus = [x for x in (row.get("reasons_plus") or "").split(" ; ") if x]
+    minus = [x for x in (row.get("reasons_minus") or "").split(" ; ") if x]
+    unknowns = [x for x in (row.get("price_unknowns") or "").split(" ; ") if x]
+
+    fair = to_float(row.get("fair_price_manwon"))
+    price = to_float(row.get("price_manwon"))
+    extra: list[tuple[str, float]] = []
     adj_total = 0.0
 
     # 1) 배터리 제조사
@@ -413,62 +564,83 @@ def apply_hidden(row: dict, hidden: dict) -> dict:
     row["hidden_battery_maker"] = maker
     maker_adj = 0.0
     if maker:
-        maker_adj, _matched = battery_maker_adjust(maker)
-        adj_total += maker_adj
-        if maker_adj > 0:
-            plus.append(f"배터리 제조사 {maker} ({maker_adj:+.0f}점)")
-        elif maker_adj < 0:
-            minus.append(f"배터리 제조사 {maker} ({maker_adj:+.0f}점)")
+        key = _norm_maker(maker)
+        for k, v in H["battery_maker_manwon"].items():
+            if _norm_maker(k) and _norm_maker(k) in key:
+                maker_adj = v
+                break
+        if maker_adj:
+            extra.append((f"배터리 제조사 {maker}", maker_adj))
+            (plus if maker_adj > 0 else minus).append(
+                f"배터리 제조사 {maker} ({maker_adj:+,.0f}만원)")
         else:
             plus.append(f"배터리 제조사 {maker} (중립)")
-    row["adj_battery_maker"] = round(maker_adj, 2)
+        adj_total += maker_adj
+    else:
+        unknowns.append("배터리 제조사 미확인")
+    row["adj_battery_maker"] = round(maker_adj, 1)
 
-    # 2) 에어서스 확정 여부
-    # 에어서스는 여기서 '처음으로' 확정된다. 1차 점수에는 들어가 있지 않으므로
-    # 회수할 가점도 없다.
-    air = hidden.get("airsus")           # True / False / None(불명)
+    # 2) 에어서스 — 여기서 처음 확정된다
+    air = hidden.get("airsus")
     row["hidden_airsus"] = "" if air is None else bool(air)
     air_adj = 0.0
     if air is True:
-        air_adj = config.AIRSUS_CONFIRMED_BONUS
+        air_adj = H["airsus_present_manwon"]
         plus.append("에어서스 출고 장착 확정 (헤이딜러)")
     elif air is False:
-        air_adj = -config.AIRSUS_ABSENT_PENALTY
-        minus.append("에어서스 미장착 확정 (헤이딜러)")
-        if _truthy(row.get("seller_airsus_mention")):
+        air_adj = H["airsus_absent_manwon"]
+        extra.append(("에어서스 미장착 확정", air_adj))
+        minus.append(f"에어서스 미장착 확정 ({air_adj:+,.0f}만원)")
+        if str(row.get("seller_airsus_mention")) == "True":
             minus.append("판매자 설명에는 에어서스가 언급돼 있었음 — 설명과 불일치")
+    else:
+        unknowns.append("에어서스 장착 여부 미확인")
     adj_total += air_adj
-    row["adj_airsus"] = round(air_adj, 2)
+    row["adj_airsus"] = round(air_adj, 1)
 
-    # 3) 보험 수리이력 금액
-    #    2단계에서 엔카 record 로 이미 수리비 감점을 줬다면, 같은 보험개발원
-    #    데이터를 두 번 깎는 셈이 된다. 헤이딜러 값이 더 정확하므로
-    #    2단계 사고 감점을 되돌리고 헤이딜러 기준으로 다시 매긴다.
+    # 3) 보험 수리이력 — 2단계에서 엔카 record 로 이미 반영한 금액을 대체한다.
+    #    같은 보험개발원 데이터라 두 번 깎으면 안 된다.
     cost = hidden.get("insurance_repair_won")
     cost = to_int(cost) if cost is not None else None
     row["hidden_insurance_won"] = cost if cost is not None else ""
-    ins_adj, ins_label = insurance_adjust(cost)
-
+    ins_adj = 0.0
     if cost is not None:
-        stage2_acc = abs(to_float(row.get("penalty_accident"), 0.0) or 0.0)
-        if stage2_acc:
-            adj_total += stage2_acc          # 2단계 사고 감점 원복
-            row["adj_accident_revert"] = round(stage2_acc, 2)
-            notes_revert = f"2단계 사고 감점 {stage2_acc:.1f}점 원복 (헤이딜러 기준으로 재산정)"
-            plus.append(notes_revert)
-    adj_total += ins_adj
-    row["adj_insurance"] = round(ins_adj, 2)
-    if cost is not None:
+        stage2 = 0.0
+        for part in (row.get("price_breakdown") or "").split(" || "):
+            if part.startswith("사고이력"):
+                try:
+                    stage2 = abs(float(part.rsplit("=", 1)[1].replace(",", "")))
+                except ValueError:
+                    stage2 = 0.0
+        hidden_amt = cost / 10000.0 * H["insurance_cost_multiplier"]
+        ins_adj = stage2 - hidden_amt      # 2단계분 원복 후 헤이딜러 기준 적용
+        extra.append((f"보험 수리이력 {cost:,}원 (헤이딜러 기준으로 재산정)", ins_adj))
         (plus if ins_adj > 0 else minus).append(
-            f"보험 수리이력 {ins_label} ({cost:,}원)")
+            f"보험 수리이력 {cost:,}원 ({ins_adj:+,.0f}만원 조정)")
+        adj_total += ins_adj
+    else:
+        unknowns.append("보험 수리이력 미확인")
+    row["adj_insurance"] = round(ins_adj, 1)
 
     row["hidden_insurance_summary"] = hidden.get("insurance_summary") or ""
     row["hidden_notes"] = hidden.get("notes") or ""
     row["hidden_source_image"] = hidden.get("source_image") or ""
+    row["hidden_adjust_total"] = round(adj_total, 1)
 
-    base = to_float(row.get("score_stage2"), 0.0) or 0.0
-    row["hidden_adjust_total"] = round(adj_total, 2)
-    row["score_total"] = round(base + adj_total, 2)
+    if fair is not None:
+        new_fair = fair + adj_total
+        bd = [x for x in (row.get("price_breakdown") or "").split(" || ")
+              if not x.startswith("= 적정가")]
+        for lab, amt in extra:
+            bd.append(f"{lab}={amt:+,.0f}")
+        bd.append(f"= 적정가(헤이딜러 반영)={new_fair:,.0f}")
+        row["price_breakdown"] = " || ".join(bd)
+        row["fair_price_manwon"] = round(new_fair, 0)
+        if price is not None:
+            row["value_gap_manwon"] = round(new_fair - price, 0)
+            row["score_total"] = row["value_gap_manwon"]
+
     row["reasons_plus"] = " ; ".join(plus)
     row["reasons_minus"] = " ; ".join(minus)
+    row["price_unknowns"] = " ; ".join(dict.fromkeys(unknowns))
     return row

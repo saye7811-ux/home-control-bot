@@ -812,6 +812,7 @@ def score_repairs(entries: list[dict]) -> dict:
     worst = graded[0] if graded else None
     return {
         "entries": graded,
+        "worst_status": worst["status"] if worst else None,
         "diagnostics": diagnostics,
         "unclassified": unclassified,
         "penalty": round(total, 1),
@@ -1010,6 +1011,7 @@ def normalize_inspection(inspection: Any) -> dict:
         "repair_notes": None,       # 사람이 읽는 수리 부위 설명들
         "repair_penalty": None,     # 등급 기반 감점
         "repair_worst_rank": None,
+        "repair_worst_status": None,
         "repair_unclassified": None,
         "repair_source": None,
         "comment_accident_mentions": None,
@@ -1107,6 +1109,7 @@ def normalize_inspection(inspection: Any) -> dict:
     out["repair_notes"] = " | ".join(g["note"] for g in res["entries"]) or None
     out["repair_penalty"] = res["penalty"]
     out["repair_worst_rank"] = res["worst_rank"]
+    out["repair_worst_status"] = res.get("worst_status")
     out["repair_source"] = "점검자 코멘트" if res["entries"] else None
     # 미분류는 코멘트에서 나온 것만 보고한다 (구어체 표현을 늘려가기 위함)
     out["repair_unclassified"] = ", ".join(res.get("unmatched", [])) or None
@@ -1516,6 +1519,7 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "insp_repair_notes": insp["repair_notes"] or "",
         "insp_repair_penalty": _blank(insp["repair_penalty"]),
         "insp_worst_rank": insp["repair_worst_rank"] or "",
+        "insp_worst_status": insp.get("repair_worst_status") or "",
         "insp_unclassified": insp["repair_unclassified"] or "",
         "battery_pack_damage": _blank(insp["battery_pack_damage"]),
         "insp_diagnostics": insp.get("diagnostics") or "",

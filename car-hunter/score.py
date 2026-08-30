@@ -19,6 +19,7 @@ import config
 import report as report_mod
 import scoring
 from common import (
+    to_float,
     BLOCKED_FLAG, LISTINGS_CSV, MARKET_JSON, REPORT_HTML, SCORED_CSV,
     die, ensure_dirs, fmt_km, fmt_manwon, log, read_csv, warn,
     write_csv, write_json,
@@ -36,6 +37,9 @@ SCORED_FIELDS = [
     "owner_change_count", "past_commercial_use", "past_rental_count",
     "insp_leak", "insp_corrosion", "insp_tire",
     "insp_repair_notes", "insp_repair_penalty", "insp_worst_rank",
+    "insp_worst_status",
+    "baseline_manwon", "fair_price_manwon", "value_gap_manwon",
+    "price_breakdown", "price_unknowns", "score_points",
     "insp_unclassified", "battery_pack_damage",
     "insp_diagnostics", "repair_source", "comment_accident_amount",
     "insp_mileage", "mileage_gap_km",
@@ -90,38 +94,49 @@ def print_market_summary(market, rows) -> None:
 
 def print_top(rows, n) -> None:
     print(f"\n{_hr('━')}")
-    print(f" 종합점수 상위 {min(n, len(rows))}대")
+    print(f" 적정가 대비 저평가 상위 {min(n, len(rows))}대")
     print(_hr('━'))
-    print(" 이 점수는 엔카의 객관적 데이터만 반영한 1차 결과입니다.")
-    print(" 에어서스와 배터리 제조사는 아직 반영되지 않았습니다 —")
-    print(" 엔카 옵션/판매자 설명은 딜러가 쓴 홍보 문구라 판정 근거로 쓰지 않습니다.")
+    print(" 적정가 = 기준 시세에서 흠결(과주행·사고·배터리·이력)을 금액으로 뺀 값.")
+    print(" 흠결이 있어도 그만큼 싸면 위로 올라옵니다.")
     print("")
-    print(" ▼ 아래 큰 글씨 차량번호를 헤이딜러 앱 '숨은이력찾기'에 입력하세요.")
+    print(" ※ 계수는 추정치입니다. 금액의 절대값이 아니라 매물 간 상대 비교로 보세요.")
+    print(" ※ 에어서스·배터리 제조사는 아직 반영 전입니다 (헤이딜러 조회 후 확정).")
+    print("")
+    print(" ▼ 아래 차량번호를 헤이딜러 앱 '숨은이력찾기'에 입력하세요.")
     print(_hr('━'))
+
     for r in rows[:n]:
         plate = r.get("plate_no") or "(차량번호 미확보)"
+        gap = to_float(r.get("value_gap_manwon"))
+        fair = to_float(r.get("fair_price_manwon"))
+        price = to_float(r.get("price_manwon"))
+
         print(f"\n  ┏{'━' * 34}┓")
-        print(f"  ┃  #{r['rank']:<2}   {plate:^20}   ┃   점수 {r['score_total']}")
+        print(f"  ┃  #{r['rank']:<2}   {plate:^20}   ┃")
         print(f"  ┗{'━' * 34}┛")
-        print(f"       {r.get('model_label')} · {r.get('trim')} · {r.get('region')}")
-        print(f"       {fmt_manwon(r.get('price_manwon'))}"
-              f"  (시세예측 {fmt_manwon(r.get('predicted_price_manwon'))},"
-              f" {r.get('value_pct')}%)"
+        if gap is None or fair is None:
+            print("       적정가 산출 불가")
+        else:
+            verdict = "저평가 (기회)" if gap > 0 else "고평가"
+            print(f"       적정가 {fair:,.0f}만원 / 판매가 {price:,.0f}만원"
+                  f"  ->  {gap:+,.0f}만원 {verdict}")
+        print(f"       {r.get('model_label')} · {r.get('trim')} · {r.get('region')}"
               f"  |  {r.get('year')}.{str(r.get('month') or '').zfill(2)}"
-              f"  |  {fmt_km(r.get('mileage_km'))}"
-              f"  |  연 {r.get('annual_km') or '-'}km")
-        print(f"       배터리 보증 잔여 {r.get('battery_remaining_pct')}%"
-              f" ({r.get('battery_years_left')}년 / "
-              f"{(r.get('battery_km_left') or 0):,}km, {r.get('battery_binding')} 기준)")
-        for s in (r.get("reasons_plus") or "").split(" ; "):
-            if s:
-                print(f"       + {s}")
-        for s in (r.get("reasons_minus") or "").split(" ; "):
-            if s:
-                print(f"       - {s}")
+              f"  |  {fmt_km(r.get('mileage_km'))}")
+
+        for item in (r.get("price_breakdown") or "").split(" || "):
+            if not item or "=" not in item:
+                continue
+            lab, amt = item.rsplit("=", 1)
+            print(f"         {lab:<44} {amt:>12}")
+
+        if r.get("price_unknowns"):
+            for u in str(r["price_unknowns"]).split(" ; "):
+                if u:
+                    print(f"       ! 정보없음: {u}")
         mention = str(r.get("seller_airsus_mention", "")).strip().lower() in ("true", "1")
-        print(f"       ※ 에어서스: 판매자 설명에 언급 {'있음' if mention else '없음'}"
-              f" (딜러 문구라 신뢰 불가 — 헤이딜러로 확인 필요, 점수 미반영)")
+        print(f"       ※ 에어서스: 판매자 설명 언급 {'있음' if mention else '없음'}"
+              f" (딜러 문구라 신뢰 불가 — 헤이딜러로 확인)")
         if r.get("listing_url"):
             print(f"       {r['listing_url']}")
 
@@ -191,7 +206,12 @@ def main() -> int:
     if skipped:
         log(f"순위 대상 {len(ranked)}건 (상세 미확보 {skipped}건은 시세 표본으로만 사용)")
 
-    ranked.sort(key=lambda r: r.get("score_total", 0), reverse=True)
+    # 순위 기준은 '적정가 - 판매가'. 흠결이 있어도 그만큼 싸면 위로 올라온다.
+    def _gap(r) -> float:
+        v = to_float(r.get("value_gap_manwon"))
+        return v if v is not None else -9e9   # 산출 불가 매물은 맨 뒤로
+
+    ranked.sort(key=_gap, reverse=True)
     for i, r in enumerate(ranked, 1):
         r["rank"] = i
     for r in scored_all:

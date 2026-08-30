@@ -149,6 +149,34 @@ def _market_card(market, rows: list[dict]) -> str:
     </div>"""
 
 
+def _gap_cell(r: dict) -> str:
+    """적정가 대비 차액. 플러스면 저평가(기회)."""
+    v = to_float(r.get("value_gap_manwon"))
+    if v is None:
+        return '<span class="muted small">산출 불가</span>'
+    cls = "good" if v > 0 else "bad"
+    return (f'<span class="gap {cls}">{v:+,.0f}</span>'
+            f'<div class="muted small">만원</div>')
+
+
+def _breakdown_html(r: dict) -> str:
+    """적정가 산출 내역을 항목별 금액으로 펼친다."""
+    raw = str(r.get("price_breakdown") or "")
+    items = [x for x in raw.split(" || ") if "=" in x]
+    if not items:
+        return '<span class="muted small">-</span>'
+    rows = []
+    for i, item in enumerate(items):
+        lab, amt = item.rsplit("=", 1)
+        last = i == len(items) - 1
+        cls = "bd-total" if last else ("bd-minus" if amt.strip().startswith("-") else "")
+        rows.append(f'<tr class="{cls}"><td>{_e(lab)}</td>'
+                    f'<td class="num">{_e(amt)}</td></tr>')
+    rows.append(f'<tr class="bd-price"><td>판매가</td>'
+                f'<td class="num">{fmt_manwon(r.get("price_manwon"))}</td></tr>')
+    return f'<table class="bd">{"".join(rows)}</table>'
+
+
 def _rank_rows(rows: list[dict], stage: str) -> str:
     out = []
     for i, r in enumerate(rows, 1):
@@ -229,6 +257,9 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
             ref.append('<div class="ref warnref">※ 사고 유형 코드 '
                        + _e(r["accident_type_verdict"])[:180] + '</div>')
 
+        for u in [x for x in str(r.get("price_unknowns") or "").split(" ; ") if x]:
+            ref.append('<div class="ref warnref">※ 정보없음: ' + _e(u) + '</div>')
+
         if r.get("use_history"):
             ref.append('<div class="ref">※ 용도 이력: '
                        + _e(str(r["use_history"]))[:120] + '</div>')
@@ -265,7 +296,7 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
           {hidden_html}
         </td>
         <td class="num"><b>{fmt_manwon(r.get('price_manwon'))}</b>
-          <div class="muted small">예측 {fmt_manwon(r.get('predicted_price_manwon'))}</div>
+          <div class="muted small">적정가 {fmt_manwon(r.get('fair_price_manwon'))}</div>
           {f'<div class="muted small">신차가 대비 -{_e(r.get("depreciation_pct"))}%</div>' if r.get('depreciation_pct') not in ('', None) else ''}</td>
         <td class="num">{_e(r.get('year'))}.{_e(str(r.get('month') or '').zfill(2))}
           <div class="muted small">{fmt_km(r.get('mileage_km'))}</div></td>
@@ -273,7 +304,8 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
           <div class="muted small">km/년</div></td>
         <td class="num">{_e(r.get('battery_remaining_pct'))}%
           <div class="muted small">{_e(r.get('battery_binding'))}</div></td>
-        <td class="num score">{_e(r.get('score_total'))}</td>
+        <td class="num">{_gap_cell(r)}</td>
+        <td class="bdcell">{_breakdown_html(r)}</td>
         <td class="reasons">
           {"".join(f'<div class="p">＋ {_e(s)}</div>' for s in plus) or '<div class="muted">-</div>'}
           {"".join(f'<div class="m">－ {_e(s)}</div>' for s in minus)}
@@ -313,18 +345,29 @@ border-radius:8px;padding:10px 14px;margin:14px 0}
 .warn{color:var(--warnfg);background:var(--warnbg);padding:6px 10px;border-radius:6px;font-size:13px}
 .tick{font-size:10px;fill:var(--muted)}.axis{font-size:11px;fill:var(--muted)}
 .tablewrap{overflow-x:auto;border:1px solid var(--bd);border-radius:10px;background:var(--card)}
-table{border-collapse:collapse;width:100%;min-width:980px}
-th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--bd);vertical-align:top}
+table{border-collapse:collapse;width:100%;min-width:1360px}
+th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--bd);
+vertical-align:top;word-break:break-word}
 th{font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap}
 td.num,th.num{text-align:right;white-space:nowrap}
-td.rank{font-weight:700;color:var(--muted);width:36px}
+td.rank{font-weight:700;color:var(--muted);width:34px}
+td.links,th.links{width:56px}
 .plate{display:inline-block;background:var(--plate-bg);color:var(--plate-fg);
 font-weight:800;letter-spacing:1px;padding:6px 14px;border-radius:6px;
 font-size:20px;font-family:ui-monospace,Menlo,monospace;
 border:2px solid var(--plate-fg)}
 .hidden-tag{margin-top:5px;font-size:12px;color:var(--muted)}
-.score{font-size:17px;font-weight:700}
-.reasons{max-width:360px;font-size:12.5px}
+.gap{font-size:19px;font-weight:800}
+.gap.good{color:var(--good)}.gap.bad{color:var(--bad)}
+.bdcell{min-width:250px}
+table.bd{width:100%;border-collapse:collapse;font-size:11.5px;min-width:auto}
+table.bd td{padding:2px 4px;border:0;vertical-align:top}
+table.bd td:first-child{white-space:normal;line-height:1.35}
+table.bd td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+table.bd tr.bd-minus td{color:var(--bad)}
+table.bd tr.bd-total td{border-top:1px solid var(--bd);font-weight:700;padding-top:4px}
+table.bd tr.bd-price td{color:var(--muted)}
+.reasons{font-size:12.5px;max-width:330px}
 .reasons .p{color:var(--good)}.reasons .m{color:var(--bad)}
 .reasons .ref{color:var(--muted);font-size:11.5px;margin-top:5px;
 padding-top:4px;border-top:1px dashed var(--bd)}
@@ -375,15 +418,23 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
   <h2>모델별 시세 분포</h2>
   <div class="grid">{"".join(_market_card(m, rs) for m, rs in models)}</div>
 
-  <h2>종합점수 순위</h2>
-  <p class="sub">1차 배점: 시세 잔차 40 · 배터리 보증 잔여 20 · 신차가 대비 감가율 10 · 무사고 8 · 엔카진단 5 · 1인소유 4 (감점: 과주행 6~12, 침수·전손 40, 렌트·영업용 10)</p>
+  <h2>적정가 대비 순위</h2>
+  <p class="sub">적정가 대비 차액이 플러스면 저평가(기회), 마이너스면 고평가입니다.
+    흠결이 있어도 그만큼 싸면 위로 올라옵니다. 침수·전손·골격C·배터리팩 손상·
+    주행거리 조작은 금액 환산이 불가능한 리스크라 후보에서 제외됩니다.</p>
+  <div class="banner"><b>이 금액은 절대값이 아니라 매물 간 상대 비교용입니다.</b><br>
+    적정가 = 기준 시세(동일 연식 · 평균주행)에서 과주행 · 사고이력 · 배터리 보증
+    잔여 부족 · 소유/용도 이력을 금액으로 뺀 값입니다. 환산 계수는 추정치이며
+    <code>config.py</code> 의 <code>PRICING</code> 에서 조정할 수 있습니다.<br>
+    기준 시세 자체가 사고차를 포함한 시장 평균이라, 사고 할인을 다시 빼면 같은
+    흠결을 일부 중복해 반영하는 셈입니다. 순위를 가르는 용도로만 쓰세요.</div>
   <div class="tablewrap">
     <table>
       <thead><tr>
         <th>#</th><th>차량번호 / 모델</th><th class="num">가격</th>
         <th class="num">연식 / 주행</th><th class="num">연평균</th>
-        <th class="num">배터리 보증</th><th class="num">점수</th>
-        <th>추천 / 주의 사유</th><th>링크</th>
+        <th class="num">배터리 보증</th><th class="num">적정가 대비</th>
+        <th>적정가 산출 내역</th><th>추천 / 주의 사유</th><th>링크</th>
       </tr></thead>
       <tbody>{_rank_rows(ranked, stage)}</tbody>
     </table>

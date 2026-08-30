@@ -42,6 +42,7 @@ LISTING_FIELDS = [
     "past_commercial_use",
     "inspection_available", "insp_leak", "insp_corrosion", "insp_tire",
     "insp_repair_notes", "insp_repair_penalty", "insp_worst_rank",
+    "insp_worst_status",
     "insp_unclassified", "insp_diagnostics", "battery_pack_damage",
     "repair_source", "comment_accident_amount",
     "insp_mileage", "insp_waterlog", "insp_recall", "insp_recall_types",
