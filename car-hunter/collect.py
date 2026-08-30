@@ -33,8 +33,17 @@ LISTING_FIELDS = [
     "model_key", "model_label", "vehicle_id", "plate_no",
     "price_manwon", "year", "month", "mileage_km", "region",
     "trim", "trim_detail", "sell_type",
-    "accident_free", "accident_my_count", "accident_other_count",
-    "accident_my_cost_won", "owner_change_count",
+    "record_available", "accident_free", "accident_summary",
+    "accident_my_count", "accident_other_count", "accident_count",
+    "accident_my_cost_won", "accident_other_cost_won",
+    "owner_change_count", "plate_change_count",
+    "total_loss_count", "flood_total_count", "flood_part_count", "theft_count",
+    "past_rental_count", "past_business_count", "past_government_count",
+    "past_commercial_use",
+    "inspection_available", "insp_leak", "insp_corrosion", "insp_tire",
+    "insp_bolt_on_parts", "insp_frame_parts", "repair_kind",
+    "first_registration_date",
+    "opt_sunroof", "opt_audio", "opt_hud", "opt_rwsteer",
     "flood_or_total_loss", "rental_or_commercial", "one_owner",
     "encar_diagnosed", "encar_check", "direct_inspected",
     "seller_airsus_mention", "airsus_status", "airsus_keyword_hits",
@@ -399,6 +408,83 @@ def cmd_probe(args) -> int:
     print(f"    차량번호 추출: {plate!r}")
     if not plate:
         warn("차량번호를 못 찾았습니다. raw_detail.json 에서 번호판 키를 찾아 알려주세요.")
+
+    # ---------------- 9-1. 보험이력(record) 전체 구조 ----------------
+    record = got.get("사고이력(record)")
+    print("\n[9-1] 보험이력(record) 응답 전체 구조")
+    if not record:
+        warn("record 응답을 못 받았습니다. 사고이력 점수를 매길 수 없습니다.")
+    else:
+        keys = list(record) if isinstance(record, dict) else []
+        print(f"    최상위 필드 {len(keys)}개:")
+        for line in _describe(record, max_depth=2):
+            print("      " + line)
+
+        rec = api.normalize_record(record)
+        print("\n    -- 우리가 쓰는 항목으로의 매핑 --")
+        for std in api.RECORD_FIELDS:
+            v = rec.get(std)
+            mark = "" if v is not None else "   <-- 응답에 없음"
+            print(f"      {std:22}= {v!r}{mark}")
+        missing = [k for k in api.RECORD_FIELDS if rec.get(k) is None]
+        if missing:
+            warn(f"매핑 못한 항목 {len(missing)}개: {missing}")
+            print("      위 '최상위 필드' 목록에서 대응되는 실제 키를 찾아 알려주시면")
+            print("      encar_api.RECORD_FIELDS 에 추가하겠습니다.")
+        if rec["accident_details"]:
+            print(f"\n    -- 사고 건별 상세 {len(rec['accident_details'])}건 --")
+            for a in rec["accident_details"][:5]:
+                print(f"      {a}")
+        else:
+            print("\n    사고 건별 상세 배열은 없습니다 "
+                  "(수리 유형 구분은 성능점검이 필요합니다).")
+
+    # ---------------- 9-2. 성능점검 경로 찾기 ----------------
+    print("\n[9-2] 성능점검(누유/부식/타이어) 경로 후보 시험")
+    insp_found = None
+    for label, url, params in api.inspection_candidates(vid):
+        try:
+            code_i, payload_i, snip_i, _ = client.raw_get(url, params, stage=f"insp:{label}")
+        except api.EncarUnreachable as e:
+            print(f"    {label:22} 연결실패")
+            continue
+        except RuntimeError as e:
+            print(f"    {label:22} 실패 ({str(e)[:50]})")
+            continue
+
+        hint = ""
+        if code_i == 200 and payload_i:
+            txt = " ".join(api.strings_of(payload_i))
+            hits = [w for w in ("누유", "부식", "타이어", "판금", "교환", "성능점검")
+                    if w in txt]
+            if hits:
+                hint = f"  <== 성능점검 정보로 보임! (발견: {', '.join(hits)})"
+                insp_found = insp_found or (label, url, payload_i)
+            else:
+                hint = f"  (200 이지만 성능점검 키워드 없음, 필드 {len(payload_i) if isinstance(payload_i, dict) else '-'}개)"
+        print(f"    {label:22} {_status(code_i):10}{hint}")
+
+    if insp_found:
+        label, url, payload_i = insp_found
+        write_json(os.path.join(os.path.dirname(DETAILS_JSON), "raw_inspection.json"),
+                   payload_i)
+        print(f"\n    -> '{label}' 경로에서 찾았습니다. 전체 저장: data/raw_inspection.json")
+        ni = api.normalize_inspection(payload_i)
+        for k, v in ni.items():
+            print(f"      {k:22}= {v!r}")
+        print(f"\n    encar_api.INSPECT_URL 을 이 경로로 바꾸면 됩니다:")
+        print(f"      {url}")
+    else:
+        warn("성능점검 경로를 못 찾았습니다. 누유/부식/타이어와 교환·골격 구분은 "
+             "당분간 '응답에 없음' 으로 남습니다.")
+        print("\n    브라우저에서 직접 찾는 방법:")
+        print("      1. 엔카 매물 상세 페이지를 열고 '성능점검기록부' 를 화면에 띄운다")
+        print("      2. F12 -> Network 탭 -> Fetch/XHR 필터 -> F5 로 새로고침")
+        print("      3. 성능점검 내용이 보이는 시점에 새로 뜨는 요청을 클릭")
+        print("      4. Response 탭에서 Ctrl+F 로 '누유' 또는 '타이어' 검색")
+        print("      5. 찾으면 그 요청 우클릭 -> Copy -> Copy link address")
+        print("      Network 필터 칸에 inspect / performance / record / diagnosis 를")
+        print("      쳐 보면 후보가 줄어듭니다.")
 
     # ---------------- 10. 옵션 배열 위치 찾기 ----------------
     print("\n[10] 옵션 배열 탐색  (에어서스 판별의 핵심)")

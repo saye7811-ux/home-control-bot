@@ -107,9 +107,20 @@ def _truthy(v) -> bool:
 
 def enrich(row: dict) -> dict:
     """연식/주행거리에서 파생 지표를 채운다 (회귀 적합 전에 호출)."""
+    from common import age_years_from_date, parse_date
+
     y, m = to_int(row.get("year")), to_int(row.get("month"))
-    age = age_years(y, m)
     km = to_int(row.get("mileage_km"))
+
+    # 배터리 보증 8년의 기준일은 '최초등록일' 이다. 연식(yyyyMM)과 몇 달씩
+    # 차이날 수 있으므로 실제 등록일이 있으면 그것을 쓴다.
+    first_reg = parse_date(row.get("first_registration_date"))
+    if first_reg is not None:
+        age = age_years_from_date(first_reg)
+        row["age_basis"] = f"최초등록일 {first_reg}"
+    else:
+        age = age_years(y, m)
+        row["age_basis"] = f"연식 {y}.{str(m or '').zfill(2)} (최초등록일 응답에 없음)"
 
     row["age_years"] = round(age, 2) if age is not None else ""
     if age is not None and km is not None:
@@ -229,10 +240,56 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
             minus.append(f"과주행 (연 {annual:,}km)")
     row["penalty_overrun"] = -round(over_pen, 2)
 
+    # --- 사고이력 상세 ---
+    A = S["accident"]
+    acc_pen = 0.0
+    my_n = to_int(row.get("accident_my_count"))
+    ot_n = to_int(row.get("accident_other_count"))
+    my_cost = to_int(row.get("accident_my_cost_won"))
+    known = str(row.get("record_available", "")).strip().lower() in ("true", "1", "y")
+
+    if not known or (my_n is None and ot_n is None):
+        # 정보가 없으면 '무사고' 로 치지 않는다. 모른다는 것 자체가 위험이다.
+        acc_pen += S["penalty"]["unknown_record"]
+        minus.append("보험이력을 확인하지 못했습니다 (응답에 없음)")
+        row["accident_summary"] = "확인 불가"
+    elif not (my_n or 0) and not (ot_n or 0):
+        row["accident_summary"] = "무사고"
+    else:
+        bits = []
+        if my_n:
+            acc_pen += my_n * A["my_per_case"]
+            bits.append(f"내차 피해 {my_n}건")
+        if ot_n:
+            acc_pen += ot_n * A["other_per_case"]
+            bits.append(f"타차 가해 {ot_n}건")
+        if my_cost is not None and my_cost > 0:
+            for upper, pen, label in A["cost_tiers"]:
+                if my_cost <= upper:
+                    acc_pen += pen
+                    bits.append(f"내차 수리비 {label} ({my_cost:,}원)")
+                    break
+        elif my_n:
+            bits.append("수리비 금액 응답에 없음")
+        row["accident_summary"] = " / ".join(bits)
+        minus.append("사고이력: " + row["accident_summary"])
+
+    # 수리 유형 — 성능점검이 있어야 판별 가능
+    kind = str(row.get("repair_kind") or "")
+    if kind == "frame":
+        acc_pen += A["repair_frame"]
+        minus.append(f"골격/판금 수리 ({row.get('insp_frame_parts') or '부위 미상'})")
+    elif kind == "bolt_on":
+        acc_pen += A["repair_bolt_on"]
+        minus.append(f"단순 교환 ({row.get('insp_bolt_on_parts')})")
+    elif not kind:
+        row["repair_kind_note"] = "성능점검 응답에 없음 — 교환/골격 구분 불가"
+    row["penalty_accident"] = -round(acc_pen, 2)
+
     # --- 가점 ---
     bonus = 0.0
-    if _truthy(row.get("accident_free")):
-        bonus += S["bonus"]["no_accident"]; plus.append("무사고")
+    if known and _truthy(row.get("accident_free")):
+        bonus += S["bonus"]["no_accident"]; plus.append("무사고 (보험이력 확인)")
     if _truthy(row.get("encar_diagnosed")):
         bonus += S["bonus"]["encar_diagnosed"]; plus.append("엔카진단 매물")
     if _truthy(row.get("one_owner")):
@@ -245,17 +302,22 @@ def score_row(row: dict, market: MarketModel, target: dict) -> dict:
     row["seller_airsus_mention"] = _truthy(row.get("has_airsus_keyword"))
 
     # --- 감점 ---
-    penalty = over_pen
+    penalty = over_pen + acc_pen
+    if _truthy(row.get("past_commercial_use")):
+        penalty += S["penalty"]["past_commercial_use"]
+        bits = []
+        for k, lab in (("past_rental_count", "대여용"), ("past_business_count", "영업용"),
+                       ("past_government_count", "관용")):
+            n = to_int(row.get(k))
+            if n:
+                bits.append(f"{lab} {n}회")
+        minus.append("과거 용도 이력: " + (", ".join(bits) or "있음"))
     if _truthy(row.get("flood_or_total_loss")):
         penalty += S["penalty"]["flood_total_loss"]
         minus.append("침수/전손 이력 — 사실상 제외 대상")
     if _truthy(row.get("rental_or_commercial")):
         penalty += S["penalty"]["rental_commercial"]
         minus.append("렌트/영업용 이력")
-    acc_my = to_int(row.get("accident_my_count"), 0) or 0
-    acc_ot = to_int(row.get("accident_other_count"), 0) or 0
-    if acc_my or acc_ot:
-        minus.append(f"보험 사고이력 (내차 {acc_my}건 / 상대차 {acc_ot}건)")
     row["penalty_total"] = -round(penalty, 2)
 
     total = value_score + battery_score + dep_score + bonus - penalty
@@ -332,10 +394,21 @@ def apply_hidden(row: dict, hidden: dict) -> dict:
     row["adj_airsus"] = round(air_adj, 2)
 
     # 3) 보험 수리이력 금액
+    #    2단계에서 엔카 record 로 이미 수리비 감점을 줬다면, 같은 보험개발원
+    #    데이터를 두 번 깎는 셈이 된다. 헤이딜러 값이 더 정확하므로
+    #    2단계 사고 감점을 되돌리고 헤이딜러 기준으로 다시 매긴다.
     cost = hidden.get("insurance_repair_won")
     cost = to_int(cost) if cost is not None else None
     row["hidden_insurance_won"] = cost if cost is not None else ""
     ins_adj, ins_label = insurance_adjust(cost)
+
+    if cost is not None:
+        stage2_acc = abs(to_float(row.get("penalty_accident"), 0.0) or 0.0)
+        if stage2_acc:
+            adj_total += stage2_acc          # 2단계 사고 감점 원복
+            row["adj_accident_revert"] = round(stage2_acc, 2)
+            notes_revert = f"2단계 사고 감점 {stage2_acc:.1f}점 원복 (헤이딜러 기준으로 재산정)"
+            plus.append(notes_revert)
     adj_total += ins_adj
     row["adj_insurance"] = round(ins_adj, 2)
     if cost is not None:

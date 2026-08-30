@@ -174,6 +174,31 @@ def parse_year_month(v) -> tuple[int | None, int | None]:
     return None, None
 
 
+def parse_date(v) -> date | None:
+    """20231205 / '2023-12-05' / '2023.12.05' 등을 date 로. 실패하면 None."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if len(digits) < 8:
+        return None
+    try:
+        y, m, d = int(digits[:4]), int(digits[4:6]), int(digits[6:8])
+        if not (1980 <= y <= 2100 and 1 <= m <= 12 and 1 <= d <= 31):
+            return None
+        return date(y, m, d)
+    except ValueError:
+        return None
+
+
+def age_years_from_date(d: date | None, today: date | None = None) -> float | None:
+    """정확한 날짜 기준 경과 연수."""
+    if d is None:
+        return None
+    today = today or date.today()
+    return max((today - d).days / 365.25, 0.0)
+
+
 def age_years(year: int | None, month: int | None, today: date | None = None) -> float | None:
     """최초등록(연식) 기준 경과 연수. 월 정보가 없으면 해당 연도 6월로 가정."""
     if not year:

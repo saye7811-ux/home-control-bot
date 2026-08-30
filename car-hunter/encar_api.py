@@ -521,6 +521,157 @@ def matches_target(listing: dict, target: dict) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# 보험이력(record) 파싱
+# ---------------------------------------------------------------------------
+# 엔카 record 응답의 실제 필드명은 확인되지 않았다. 아래는 후보 목록이며,
+# 어느 것도 없으면 값을 0 으로 채우지 않고 None(=응답에 없음) 으로 둔다.
+# 없는 값을 0 으로 채우면 '정보 없음' 이 '사고 없음' 으로 둔갑한다.
+RECORD_FIELDS: dict[str, tuple[str, ...]] = {
+    # 사고 건수
+    "my_accident_count":    ("myAccidentCnt", "myAccidentCount", "myAccdCnt"),
+    "other_accident_count": ("otherAccidentCnt", "otherAccidentCount", "otherAccdCnt"),
+    "accident_count":       ("accidentCnt", "accidentCount", "totalAccidentCnt"),
+    # 사고 금액 (원)
+    "my_accident_cost":     ("myAccidentCost", "myAccidentAmount", "myAccdCost"),
+    "other_accident_cost":  ("otherAccidentCost", "otherAccidentAmount", "otherAccdCost"),
+    # 소유/번호 변경
+    "owner_change_count":   ("ownerChangeCnt", "ownerChangeCount", "changeCount", "owners"),
+    "plate_change_count":   ("carNoChangeCnt", "carNoChangeCount", "noChangeCnt"),
+    # 특수 이력
+    "total_loss_count":     ("totalLossCnt", "totalLossCount"),
+    "flood_total_count":    ("floodTotalLossCnt", "floodTotalCnt"),
+    "flood_part_count":     ("floodPartLossCnt", "floodPartCnt"),
+    "theft_count":          ("robberCnt", "theftCnt", "robberyCnt"),
+    # 과거 용도 이력 (현재 판매형태와 별개 — 과거에 그렇게 '등록' 된 적이 있는가)
+    "rental_use_count":     ("loanCnt", "rentCnt", "rentalCnt", "loanCount"),
+    "business_use_count":   ("businessCnt", "businessCount", "commercialCnt"),
+    "government_use_count": ("governmentCnt", "governmentCount"),
+    # 최초등록일
+    "first_registration":   ("firstDate", "firstRegDate", "firstRegistrationDate",
+                             "firstRegisterDate"),
+}
+
+# 사고 상세 배열이 있을 만한 경로
+ACCIDENT_LIST_PATHS = ("accidents", "accidentList", "records", "history", "list")
+
+# 성능점검 부위 분류 — 엔카 성능점검기록부 기준
+BOLT_ON_PARTS = ("후드", "프론트펜더", "펜더", "도어", "트렁크리드", "범퍼",
+                 "라디에이터서포트", "쿼터패널", "루프패널", "사이드실")
+FRAME_PARTS = ("사이드멤버", "필러", "대시패널", "플로어", "휠하우스",
+               "인사이드패널", "크로스멤버", "리어패널", "패키지트레이",
+               "트렁크플로어", "프론트패널")
+WELD_WORDS = ("판금", "용접", "골격", "부식")
+
+
+def _blank(v):
+    """None(응답에 없음)은 빈 문자열로. 0 과 구분하기 위함."""
+    return "" if v is None else v
+
+
+def normalize_record(record: Any) -> dict:
+    """보험이력 응답을 표준 필드로. 못 찾은 값은 None 으로 둔다.
+
+    반환 dict 에는 각 값과 함께 'record_fields_found'(찾은 필드 이름들)이
+    들어간다. probe 가 무엇이 실제로 왔는지 보여주는 데 쓴다.
+    """
+    out: dict[str, Any] = {k: None for k in RECORD_FIELDS}
+    out["record_available"] = isinstance(record, dict) and bool(record)
+    out["record_fields_found"] = []
+    out["accident_details"] = []
+
+    if not isinstance(record, dict):
+        return out
+
+    for std, cands in RECORD_FIELDS.items():
+        v = pick(record, *cands)
+        if v is None:
+            continue
+        out["record_fields_found"].append(std)
+        if std == "first_registration":
+            out[std] = str(v)
+        else:
+            out[std] = to_int(v)
+
+    # 사고 건별 상세 (있으면)
+    for path in ACCIDENT_LIST_PATHS:
+        arr = pick(record, path)
+        if isinstance(arr, list) and arr and isinstance(arr[0], dict):
+            for a in arr[:20]:
+                out["accident_details"].append({
+                    "date": pick(a, "date", "accidentDate", "insuranceDate"),
+                    "type": pick(a, "type", "accidentType", "gubun"),
+                    "part_cost": to_int(pick(a, "partCost", "partAmount")),
+                    "labor_cost": to_int(pick(a, "laborCost", "laborAmount")),
+                    "paint_cost": to_int(pick(a, "paintCost", "paintAmount")),
+                    "total": to_int(pick(a, "insuranceBenefit", "totalCost", "amount")),
+                })
+            out["record_fields_found"].append(f"accident_details({path})")
+            break
+    return out
+
+
+def normalize_inspection(inspection: Any) -> dict:
+    """성능점검 응답에서 누유 / 부식 / 타이어 / 교환·판금 부위를 뽑는다.
+
+    엔카 성능점검 API 경로가 아직 확인되지 않았다. 응답이 없으면
+    전부 None(=응답에 없음) 으로 둔다.
+    """
+    out = {
+        "inspection_available": bool(inspection),
+        "leak_note": None,        # 누유
+        "corrosion_note": None,   # 부식
+        "tire_note": None,        # 타이어
+        "bolt_on_parts": None,    # 단순 교환 부위
+        "frame_parts": None,      # 골격 수리 부위
+        "repair_kind": None,      # 'none' | 'bolt_on' | 'frame'
+    }
+    if not inspection:
+        return out
+
+    strs = strings_of(inspection)
+    joined = " ".join(strs)
+
+    def _near(words: tuple[str, ...]) -> str | None:
+        hits = [s.strip() for s in strs
+                if any(w in s for w in words) and len(s.strip()) <= 120]
+        return " / ".join(dict.fromkeys(hits))[:200] or None
+
+    out["leak_note"] = _near(("누유", "누수", "오일"))
+    out["corrosion_note"] = _near(("부식", "녹"))
+    out["tire_note"] = _near(("타이어", "트레드", "마모"))
+
+    bolt = sorted({p for p in BOLT_ON_PARTS if p in joined})
+    frame = sorted({p for p in FRAME_PARTS if p in joined})
+    out["bolt_on_parts"] = ", ".join(bolt) or None
+    out["frame_parts"] = ", ".join(frame) or None
+
+    if frame or any(w in joined for w in WELD_WORDS):
+        out["repair_kind"] = "frame"
+    elif bolt:
+        out["repair_kind"] = "bolt_on"
+    else:
+        out["repair_kind"] = "none"
+    return out
+
+
+def inspection_candidates(vid: str) -> list[tuple[str, str, dict | None]]:
+    """성능점검 정보가 있을 만한 경로 후보. probe 가 하나씩 시험한다."""
+    base = "https://api.encar.com/v1/readside"
+    d = DETAIL_URL.format(vid=vid)
+    return [
+        ("inspection/vehicle", f"{base}/inspection/vehicle/{vid}", None),
+        ("vehicle/inspection", f"{d}/inspection", None),
+        ("vehicleInspection", f"{base}/vehicleInspection/{vid}", None),
+        ("inspection/{id}", f"{base}/inspection/{vid}", None),
+        ("performance", f"{d}/performance", None),
+        ("record/inspection", f"{base}/record/vehicle/{vid}/inspection", None),
+        ("diagnosis/vehicle", f"{base}/diagnosis/vehicle/{vid}", None),
+        ("include=INSPECTION", d, {"include": "INSPECTION,DIAGNOSIS,CONDITION"}),
+        ("extend/inspection", f"{base}/extend/inspection/{vid}", None),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # 상세 응답 계측 — 옵션 배열이 어디 있는지 찾아내기
 # ---------------------------------------------------------------------------
 def find_arrays(obj: Any, prefix: str = "", out: list | None = None,
@@ -795,24 +946,39 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
                 bits.append(v.strip())
         insp_summary = " / ".join(bits)[:300]
 
-    owner_changes = to_int(pick(record or {}, "ownerChangeCnt", "ownerChangeCount",
-                                "changeCount", "owners"))
-    my_acc = to_int(pick(record or {}, "myAccidentCnt", "myAccidentCount", "accidentCnt"))
-    other_acc = to_int(pick(record or {}, "otherAccidentCnt", "otherAccidentCount"))
-    my_cost = to_int(pick(record or {}, "myAccidentCost", "myAccidentAmount"), 0)
+    rec = normalize_record(record)
+    insp = normalize_inspection(inspection)
 
-    # 사고 여부는 텍스트보다 record 의 건수가 신뢰도가 높다.
+    owner_changes = rec["owner_change_count"]
+    my_acc = rec["my_accident_count"]
+    other_acc = rec["other_accident_count"]
+    my_cost = rec["my_accident_cost"]
+
+    # 사고 여부는 보험이력 건수로만 판정한다.
+    # 응답에 건수가 없으면 '무사고' 라고 단정하지 않는다 — 딜러가 쓴
+    # '무사고' 문구는 근거가 되지 못한다. 모르면 모른다고 둔다.
     if my_acc is None and other_acc is None:
-        accident_free = _flagged(strs, ACCIDENT_FREE_WORDS)
+        accident_free = None          # 알 수 없음
     else:
-        accident_free = not (my_acc or other_acc)
-    if flood:
+        accident_free = not ((my_acc or 0) or (other_acc or 0))
+    if flood or (rec["flood_total_count"] or 0) or (rec["total_loss_count"] or 0):
         accident_free = False
 
-    if owner_changes is not None:
-        one_owner = owner_changes <= 1
+    one_owner = (owner_changes <= 1) if owner_changes is not None else None
+
+    # 과거 용도 이력 — 지금 일반 매물이어도 과거에 대여/영업용이었을 수 있다
+    past_use_counts = [rec["rental_use_count"], rec["business_use_count"],
+                       rec["government_use_count"]]
+    if all(v is None for v in past_use_counts):
+        past_commercial_use = None
     else:
-        one_owner = _flagged(strs, ONE_OWNER_WORDS)
+        past_commercial_use = any((v or 0) > 0 for v in past_use_counts)
+
+    # 최초등록일 — 배터리 보증 8년의 기준일. 연식(yyyyMM)과 몇 달씩 다르다.
+    first_reg = pick(detail or {}, "category.firstRegistrationDate",
+                     "firstRegistrationDate", "spec.firstRegistrationDate",
+                     "manage.firstRegistrationDate", "category.firstAdvertisedDate")
+    first_reg = first_reg or rec["first_registration"]
 
     # 실제 응답에서 확인된 유용한 필드들
     origin_price = to_int(pick(detail or {}, "category.originPrice", "originPrice"))
@@ -830,9 +996,21 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
     # 엔카진단은 별도 endpoint 보다 광고 필드가 더 신뢰할 만하다
     diagnosed = bool(diagnosis) or _yes(encar_check) or _yes(direct_inspected)
 
+    # 주요 옵션 언급 여부 — 에어서스와 같은 이유로 점수에는 반영하지 않는다
+    import config as _cfg
+    option_mentions = {}
+    for label, kws in getattr(_cfg, "OPTION_MENTION_KEYWORDS", {}).items():
+        flat_kws = [k.lower().replace(" ", "") for k in kws]
+        found = [o for o in options
+                 if any(k in o.lower().replace(" ", "") for k in flat_kws)]
+        if not found and any(k in hay_flat for k in flat_kws):
+            found = ["(설명글에서 발견)"]
+        option_mentions[f"opt_{label}"] = ", ".join(found)
+
     return {
         "vehicle_id": vid,
         "plate_no": plate or "",
+        **option_mentions,
         "options": " | ".join(options[:80]),
         "options_count": len(options),
         "option_codes": ",".join(option_codes[:120]),
@@ -846,14 +1024,39 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
         "direct_inspected": _yes(direct_inspected),
         "airsus_status": airsus_status,
         "seller_airsus_mention": bool(airsus_hits),
-        "accident_free": accident_free and not (my_acc or other_acc),
-        "accident_my_count": my_acc or 0,
-        "accident_other_count": other_acc or 0,
-        "accident_my_cost_won": my_cost or 0,
-        "owner_change_count": owner_changes if owner_changes is not None else "",
-        "flood_or_total_loss": flood,
+        # 보험이력 — 값이 없으면 "" (응답에 없음). 0 으로 채우지 않는다.
+        "record_available": rec["record_available"],
+        "record_fields_found": ", ".join(rec["record_fields_found"]),
+        "accident_free": "" if accident_free is None else accident_free,
+        "accident_my_count": _blank(my_acc),
+        "accident_other_count": _blank(other_acc),
+        "accident_count": _blank(rec["accident_count"]),
+        "accident_my_cost_won": _blank(my_cost),
+        "accident_other_cost_won": _blank(rec["other_accident_cost"]),
+        "owner_change_count": _blank(owner_changes),
+        "plate_change_count": _blank(rec["plate_change_count"]),
+        "total_loss_count": _blank(rec["total_loss_count"]),
+        "flood_total_count": _blank(rec["flood_total_count"]),
+        "flood_part_count": _blank(rec["flood_part_count"]),
+        "theft_count": _blank(rec["theft_count"]),
+        # 과거 용도 이력
+        "past_rental_count": _blank(rec["rental_use_count"]),
+        "past_business_count": _blank(rec["business_use_count"]),
+        "past_government_count": _blank(rec["government_use_count"]),
+        "past_commercial_use": "" if past_commercial_use is None else past_commercial_use,
+        # 성능점검
+        "inspection_available": insp["inspection_available"],
+        "insp_leak": insp["leak_note"] or "",
+        "insp_corrosion": insp["corrosion_note"] or "",
+        "insp_tire": insp["tire_note"] or "",
+        "insp_bolt_on_parts": insp["bolt_on_parts"] or "",
+        "insp_frame_parts": insp["frame_parts"] or "",
+        "repair_kind": insp["repair_kind"] or "",
+        # 최초등록일 (배터리 보증 기준일)
+        "first_registration_date": str(first_reg) if first_reg else "",
+        "flood_or_total_loss": flood or bool((rec["flood_total_count"] or 0)),
         "rental_or_commercial": rental,
-        "one_owner": one_owner or (owner_changes == 1 if owner_changes is not None else False),
+        "one_owner": "" if one_owner is None else one_owner,
         "encar_diagnosed": diagnosed,
         "airsus_keyword_hits": ", ".join(airsus_hits),
         "has_airsus_keyword": bool(airsus_hits),

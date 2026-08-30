@@ -19,7 +19,13 @@ CHECKLIST = [
      "완속 완충 후 표시 주행가능거리 확인."),
     ("하부/언더커버 육안", "침수 흔적(부식, 진흙), 배터리 팩 하부 스크래치·찍힘 여부."),
     ("타이어 4본 제조주차", "전기차는 타이어 마모가 빠름. 4본 교체 시 100만원 이상 추가 비용."),
-    ("성능점검기록부 원본 대조", "엔카 표기와 실제 기록부(사고/교환 부위)가 일치하는지 대조."),
+    ("성능점검기록부 원본 대조", "엔카 표기와 실제 기록부가 일치하는지 대조. "
+     "특히 교환 부위가 볼트온(범퍼·펜더·도어)인지 판금·용접이 필요한 골격"
+     "(사이드멤버·필러·대시패널·플로어)인지 확인. 골격 수리는 가치 하락이 크다."),
+    ("누유·부식 하부 점검", "리프트에 올려 엔진·감속기 오일 누유, 하부 부식, "
+     "배터리 팩 하우징 상태 확인. 성능점검 표기만 믿지 말 것."),
+    ("타이어 4본 잔여 트레드", "전기차는 마모가 빠르다. 트레드 4mm 미만이면 "
+     "4본 교체 비용(100만원 이상)을 가격 협상에 반영."),
     ("보험개발원 카히스토리 직접 조회", "헤이딜러 결과와 교차 검증. 소유자 변경 횟수와 용도이력 확인."),
     ("리콜/캠페인 미이행 확인", "차대번호로 제조사 리콜 조회. 미이행 건 인수 전 처리 요구."),
     ("실차 시승", "회생제동 단계별 작동, 경고등, 에어컨/히트펌프, 12V 배터리 상태."),
@@ -153,13 +159,38 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         minus = [s for s in (r.get("reasons_minus") or "").split(" ; ") if s]
 
         # 엔카의 에어서스 언급은 딜러 코멘트라 점수에 넣지 않는다. 참고 표시만.
+        ref = []
         seller_air = str(r.get("seller_airsus_mention", "")).strip().lower() in ("true", "1")
         if stage != "final":
             note = ("판매자 설명에 에어서스 언급 있음" if seller_air
                     else "판매자 설명에 에어서스 언급 없음")
-            ref = [f'<div class="ref">※ {_e(note)} — 딜러 작성 문구라 신뢰 불가</div>']
+            ref.append(f'<div class="ref">※ {_e(note)} — 딜러 작성 문구라 신뢰 불가</div>')
+
+        # 주요 옵션 — 참고 표시만 (점수 미반영)
+        opt_labels = [("opt_sunroof", "파노라마"), ("opt_audio", "프리미엄 오디오"),
+                      ("opt_hud", "HUD"), ("opt_rwsteer", "후륜조향")]
+        opt_bits = [lab for key, lab in opt_labels if r.get(key)]
+        if opt_bits:
+            ref.append(f'<div class="ref">※ 옵션 언급: {_e(" · ".join(opt_bits))} '
+                       f'(점수 미반영)</div>')
+
+        # 성능점검 — 있으면 표시, 없으면 없다고 표시
+        insp = [r.get("insp_leak"), r.get("insp_corrosion"), r.get("insp_tire")]
+        if any(insp):
+            ref.append('<div class="ref">※ 성능점검: '
+                       + _e(" / ".join(x for x in insp if x))[:160] + '</div>')
         else:
-            ref = []
+            ref.append('<div class="ref warnref">※ 성능점검(누유·부식·타이어): '
+                       '응답에 없음 — 실차에서 직접 확인 필요</div>')
+
+        if r.get("repair_kind") == "" and str(r.get("accident_free")) != "True":
+            ref.append('<div class="ref warnref">※ 교환/골격 수리 구분 불가 '
+                       '— 성능점검기록부 원본 대조 필요</div>')
+
+        basis = str(r.get("age_basis") or "")
+        if "응답에 없음" in basis:
+            ref.append('<div class="ref warnref">※ 최초등록일이 응답에 없어 '
+                       '연식으로 배터리 보증을 계산했습니다 (수개월 오차 가능)</div>')
 
         hidden_bits = []
         if stage == "final":
@@ -249,8 +280,9 @@ border:2px solid var(--plate-fg)}
 .score{font-size:17px;font-weight:700}
 .reasons{max-width:360px;font-size:12.5px}
 .reasons .p{color:var(--good)}.reasons .m{color:var(--bad)}
-.reasons .ref{color:var(--muted);font-size:11.5px;margin-top:6px;
-padding-top:5px;border-top:1px dashed var(--bd)}
+.reasons .ref{color:var(--muted);font-size:11.5px;margin-top:5px;
+padding-top:4px;border-top:1px dashed var(--bd)}
+.reasons .warnref{color:var(--warnfg)}
 .banner.ok{background:transparent;border:1px solid var(--good);color:inherit}
 .links a{color:var(--good);text-decoration:none;margin-right:8px;white-space:nowrap}
 .links a:hover{text-decoration:underline}

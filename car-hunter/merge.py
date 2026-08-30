@@ -76,7 +76,7 @@ def _load_scored() -> list[dict]:
     from common import to_int
     for r in rows:
         for k in ("price_manwon", "year", "month", "mileage_km", "annual_km",
-                  "battery_km_left", "accident_my_count", "accident_other_count"):
+                  "battery_km_left"):
             r[k] = to_int(r.get(k))
     return rows
 

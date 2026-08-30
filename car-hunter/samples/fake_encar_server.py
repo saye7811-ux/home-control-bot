@@ -142,9 +142,31 @@ class Handler(BaseHTTPRequestHandler):
 
         m = re.match(r"^/v1/readside/record/vehicle/(\d+)/open$", u.path)
         if m:
-            return self._send(200, {"myAccidentCnt": 0, "otherAccidentCnt": 0,
-                                    "myAccidentCost": 0, "ownerChangeCnt": 1,
-                                    "historyText": "무사고 / 침수이력: 없음"})
+            vid = int(m.group(1))
+            # 실제 record 응답을 흉내 — 필드가 많고 이름도 우리 추정과 일부 다르다
+            return self._send(200, {
+                "myAccidentCnt": vid % 3, "otherAccidentCnt": vid % 2,
+                "myAccidentCost": (vid % 3) * 1_250_000,
+                "otherAccidentCost": 0,
+                "ownerChangeCnt": 1 + vid % 2, "carNoChangeCnt": 0,
+                "totalLossCnt": 0, "floodTotalLossCnt": 0, "floodPartLossCnt": 0,
+                "robberCnt": 0,
+                "loanCnt": 1 if vid % 7 == 0 else 0,      # 과거 대여용
+                "businessCnt": 0, "governmentCnt": 0,
+                "firstDate": "20230115",
+                "accidents": [{"date": "20240301", "partCost": 800000,
+                               "laborCost": 400000, "paintCost": 250000}]
+                              if vid % 3 else [],
+                "historyText": "침수이력: 없음",
+            })
+
+        # 성능점검은 이 경로에서만 응답한다 (다른 후보는 전부 404)
+        if re.match(r"^/v1/readside/vehicle/(\d+)/performance$", u.path):
+            return self._send(200, {"result": {
+                "누유": "엔진 오일 누유 없음", "부식": "하부 부식 없음",
+                "타이어": "타이어 마모 보통 (트레드 5mm)",
+                "교환부위": "프론트펜더, 도어",
+            }})
 
         if re.match(r"^/v1/readside/inspection/vehicle/(\d+)$", u.path):
             return self._send(404)                       # 일부러 없는 경로

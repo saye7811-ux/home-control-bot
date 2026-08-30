@@ -31,13 +31,18 @@ SCORED_FIELDS = [
     "year", "month", "age_years", "mileage_km", "annual_km", "region",
     "trim", "trim_detail",
     "battery_years_left", "battery_km_left", "battery_remaining_pct", "battery_binding",
-    "accident_free", "accident_my_count", "accident_other_count",
-    "accident_my_cost_won", "owner_change_count",
+    "record_available", "accident_free", "accident_summary",
+    "accident_my_count", "accident_other_count", "accident_my_cost_won",
+    "owner_change_count", "past_commercial_use", "past_rental_count",
+    "insp_leak", "insp_corrosion", "insp_tire", "repair_kind",
+    "insp_bolt_on_parts", "insp_frame_parts",
+    "first_registration_date", "age_basis",
+    "opt_sunroof", "opt_audio", "opt_hud", "opt_rwsteer",
     "flood_or_total_loss", "rental_or_commercial", "one_owner", "encar_diagnosed",
     "seller_airsus_mention", "airsus_status", "airsus_keyword_hits",
     "option_source", "warranty", "view_count", "subscribe_count",
     "score_value", "score_battery", "bonus_total", "penalty_overrun", "penalty_total",
-    "score_value", "score_battery", "score_depreciation",
+    "score_value", "score_battery", "score_depreciation", "penalty_accident",
     "score_stage2", "score_total", "market_confidence", "detail_fetched",
     "reasons_plus", "reasons_minus",
     "inspection_summary", "options", "photo_url", "listing_url",
@@ -132,8 +137,7 @@ def main() -> int:
     rows = []
     from common import to_int
     for r in raw:
-        for k in ("price_manwon", "year", "month", "mileage_km", "origin_price_manwon",
-                  "accident_my_count", "accident_other_count", "accident_my_cost_won"):
+        for k in ("price_manwon", "year", "month", "mileage_km", "origin_price_manwon"):
             r[k] = to_int(r.get(k))
         rows.append(scoring.enrich(r))
 
