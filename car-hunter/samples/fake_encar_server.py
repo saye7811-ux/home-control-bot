@@ -118,12 +118,18 @@ class Handler(BaseHTTPRequestHandler):
                 "vehicleId": int(vid),
                 "vehicleNo": f"1{vid[-2:]}가{vid[-4:]}",
                 "category": {"manufacturerName": "BMW", "modelName": "iX",
-                             "gradeName": row["Badge"], "formYear": int(row["FormYear"]),
-                             "yearMonth": row["Year"]},
+                             "type": "CAR", "gradeName": row["Badge"],
+                             "gradeDetailName": None,
+                             "originPrice": 14990, "warranty": {"text": "제조사보증 2030-03"},
+                             "formYear": int(row["FormYear"]), "yearMonth": row["Year"]},
                 "spec": {"mileage": row["Mileage"], "fuelName": "전기"},
                 "advertisement": {"price": row["Price"]},
-                "options": {"standard": ["에어서스펜션", "인테그럴 액티브 스티어링",
-                                          "하만카돈", "파노라마 선루프"]},
+                # 실제 엔카에서 보고된 형태: 옵션이 '이름' 이 아니라 숫자 코드
+                "options": {"type": "CAR", "standard": [1, 7, 23, 45, 77],
+                            "choice": [3, 9], "etc": []},
+                "manage": {"viewCount": 1520 + int(vid[-2:]), "subscribeCount": 33},
+                "advertisement": {"price": row["Price"], "encarCheck": "Y",
+                                  "directInspected": "N"},
                 "photos": [{"path": row["Photo"]}],
             })
 
@@ -132,6 +138,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"myAccidentCnt": 0, "otherAccidentCnt": 0,
                                     "myAccidentCost": 0, "ownerChangeCnt": 1,
                                     "historyText": "무사고 / 침수이력: 없음"})
+
+        if u.path == "/v1/readside/options":
+            return self._send(200, {"options": [
+                {"code": 1, "name": "에어서스펜션"},
+                {"code": 7, "name": "인테그럴 액티브 스티어링"},
+                {"code": 23, "name": "하만카돈 사운드"},
+                {"code": 45, "name": "파노라마 선루프"},
+                {"code": 77, "name": "헤드업 디스플레이"},
+            ]})
 
         if re.match(r"^/v1/readside/inspection/vehicle/(\d+)$", u.path):
             return self._send(404)                       # 일부러 없는 경로

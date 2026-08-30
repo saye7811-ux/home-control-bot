@@ -26,6 +26,8 @@ RECORD_URL = "https://api.encar.com/v1/readside/record/vehicle/{vid}/open"
 INSPECT_URL = "https://api.encar.com/v1/readside/inspection/vehicle/{vid}"
 DIAGNOSIS_URL = "https://api.encar.com/v1/readside/diagnosis/vehicle/{vid}"
 LISTING_PAGE = "http://www.encar.com/dc/dc_cardetailview.do?carid={vid}"
+# 옵션 코드→이름 변환표가 있을 만한 곳 (미확인 — probe 가 시험한다)
+OPTIONS_MASTER_URL = "https://api.encar.com/v1/readside/options"
 
 DETAIL_INCLUDE = (
     "ADVERTISEMENT,CATEGORY,CONDITION,CONTACT,MANAGE,"
@@ -147,46 +149,66 @@ def haystack(*objs: Any) -> str:
 # → ModelGroup 순으로 한 단계씩 (C. ... ) 로 감싸 내려간다.
 
 
-def build_car_segment(target: dict, include_model: bool = True) -> str:
-    """CarType → Manufacturer → ModelGroup [→ Model] 부분을 만든다."""
-    ctype = target.get("car_type", "N")
+def _join(elems: list[str]) -> str:
+    """엔카 q 문법의 원소 연결.
+
+    스칼라 원소는 끝에 '.' 을 붙이고, 원소 사이는 '_.' 로 잇는다.
+    그룹은 '(' 로 시작하는 원소이며 '.' 을 붙이지 않는다.
+
+    그룹 판별을 여는 괄호로 하는 것이 중요하다. 닫는 괄호로 판별하면
+    'Year.range(202200..202412)' 같은 스칼라 값이 그룹으로 오인되어
+    뒤따르는 구분자가 '._.' 가 아닌 '_.' 로 깨진다.
+
+        ["Hidden.N", "Year.range(202200..202412)", "(C...)"]
+        -> "Hidden.N._.Year.range(202200..202412)._.(C...)"
+    """
+    return "_.".join(e if e.startswith("(") else e + "." for e in elems)
+
+
+def build_car_segment(target: dict, include_model: bool = True,
+                      include_car_type: bool = True) -> str:
+    """CarType → Manufacturer → ModelGroup [→ Model] 부분."""
     mfr = target["manufacturer"]
     mg = target["model_group"]
     model = target.get("model") if include_model else None
 
     if model:
-        # 한 단계 더 내려갈 때는 ModelGroup 도 (C. ... ) 로 감싼다
         inner = f"(C.ModelGroup.{mg}._.Model.{model}.)"
-        mfr_part = f"(C.Manufacturer.{mfr}._.{inner})"
+        seg = f"(C.Manufacturer.{mfr}._.{inner})"
     else:
-        mfr_part = f"(C.Manufacturer.{mfr}._.ModelGroup.{mg}.)"
+        seg = f"(C.Manufacturer.{mfr}._.ModelGroup.{mg}.)"
 
-    return f"(C.CarType.{ctype}._.{mfr_part})"
+    if include_car_type:
+        ctype = target.get("car_type", "N")
+        seg = f"(C.CarType.{ctype}._.{seg})"
+    return seg
 
 
 def build_query(target: dict, ad_type: str = "B", include_year: bool = True,
-                include_model: bool = True) -> str:
-    """엔카 검색 q 파라미터 생성.
+                include_model: bool = True, include_hidden: bool = True,
+                include_car_type: bool = True, include_ad: bool = True) -> str:
+    """엔카 검색 q 파라미터.
 
-    브라우저에서 복사한 q 를 그대로 쓰려면 target["raw_q"] 에 넣으면 된다.
+    각 조건을 개별로 끌 수 있다. --probe 가 '어떤 조건이 매물을 걸러내는지'
+    를 조건별로 빼 보며 건수를 비교하는 데 쓴다.
 
-    include_year=False 로 부르면 연식 필터를 뺀 쿼리가 나온다.
-    --probe 가 '연식 필터가 실제로 먹는지' 를 두 쿼리의 결과를 비교해
-    판정하는 데 쓴다.
+    브라우저에서 복사한 q 를 그대로 쓰려면 target["raw_q"] 에 넣는다.
     """
     if target.get("raw_q"):
         return target["raw_q"]
 
-    conds = ["Hidden.N", "MultiViewHidden.N"]
+    conds: list[str] = []
+    if include_hidden:
+        conds += ["Hidden.N", "MultiViewHidden.N"]
     if include_year:
-        # 연식은 yyyyMM 6자리 범위로 지정한다 (추정 — probe 로 검증됨)
         conds.append(f"Year.range({target['year_from']}00..{target['year_to']}12)")
+    conds.append(build_car_segment(target, include_model, include_car_type))
 
-    cond_str = "._.".join(conds)
-    car_seg = build_car_segment(target, include_model=include_model)
-    search_part = f"(And.{cond_str}._.{car_seg})"
+    search_part = conds[0] if len(conds) == 1 else f"(And.{_join(conds)})"
+    if not include_ad:
+        return search_part
     ad_part = f"(Or.AdType.{ad_type}._.MultiViewAdType.{ad_type}.)"
-    return f"(And.{search_part}_.{ad_part})"
+    return f"(And.{_join([search_part, ad_part])})"
 
 
 def build_sr(offset: int = 0, limit: int = 20, sort: str = "ModifiedDate") -> str:
@@ -298,6 +320,25 @@ class EncarClient:
                sort: str = "ModifiedDate", stage: str = "search"):
         params = {"count": "true", "q": q, "sr": build_sr(offset, limit, sort)}
         return self.get_json(url, params, stage=stage)
+
+    def option_code_map(self) -> dict[str, str]:
+        """옵션 코드→이름 변환표를 한 번만 받아 캐시한다.
+
+        엔카가 옵션을 숫자 코드로 내려주는 경우 이 표가 없으면
+        에어서스 판별이 불가능하다. 실패해도 수집은 계속한다.
+        """
+        if getattr(self, "_code_map", None) is not None:
+            return self._code_map
+        self._code_map = {}
+        try:
+            payload = self.get_json(OPTIONS_MASTER_URL, stage="옵션변환표", allow_404=True)
+            if payload:
+                self._code_map = build_code_map(payload)
+        except (EncarBlocked, EncarUnreachable):
+            raise
+        except Exception as e:
+            warn(f"옵션 코드 변환표를 못 받았습니다: {e}")
+        return self._code_map
 
     def raw_get(self, url: str, params: dict | None = None, stage: str = "probe"):
         """probe 전용: 상태코드를 예외 없이 그대로 돌려준다.
@@ -429,6 +470,165 @@ def matches_target(listing: dict, target: dict) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# 상세 응답 계측 — 옵션 배열이 어디 있는지 찾아내기
+# ---------------------------------------------------------------------------
+def find_arrays(obj: Any, prefix: str = "", out: list | None = None,
+                depth: int = 0, max_depth: int = 7) -> list[dict]:
+    """중첩 구조 안의 모든 배열을 경로/길이/원소타입/샘플과 함께 찾는다.
+
+    옵션 목록이 응답 어디에 숨어 있는지 모를 때 쓰는 진단용 도구.
+    """
+    out = out if out is not None else []
+    if depth > max_depth:
+        return out
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            find_arrays(v, f"{prefix}.{k}" if prefix else k, out, depth + 1, max_depth)
+    elif isinstance(obj, list):
+        kinds = sorted({type(x).__name__ for x in obj})
+        out.append({
+            "path": prefix or "(root)",
+            "len": len(obj),
+            "kinds": kinds,
+            "sample": obj[:6],
+            "ref": obj,          # 변환표를 만들 때 전체가 필요하다
+        })
+        for i, v in enumerate(obj[:3]):
+            if isinstance(v, (dict, list)):
+                find_arrays(v, f"{prefix}[{i}]", out, depth + 1, max_depth)
+    return out
+
+
+def looks_like_option_names(arr: list, min_len: int = 1) -> bool:
+    """사람이 읽는 옵션명 배열로 보이는가.
+
+    min_len 은 자동 탐색처럼 오탐이 위험한 곳에서만 크게 잡는다.
+    알려진 옵션 경로에서는 원소가 하나뿐인 배열도 정상이다.
+    """
+    if len(arr) < min_len or not arr or not all(isinstance(x, str) for x in arr):
+        return False
+    lens = [len(x) for x in arr]
+    if not (1 <= sum(lens) / len(lens) <= 40):
+        return False
+    # 값이 전부 대문자 코드('CAR','Y','N')뿐이면 옵션명이 아니다
+    return not all(x.isascii() and x.isupper() for x in arr)
+
+
+def looks_like_option_codes(arr: list, min_len: int = 1) -> bool:
+    """숫자 코드 배열로 보이는가 (엔카는 옵션을 코드로 내려주기도 한다)."""
+    if not arr or len(arr) < min_len:
+        return False
+    return all(isinstance(x, int) or (isinstance(x, str) and x.isdigit()) for x in arr)
+
+
+CODE_KEYS = ("code", "cd", "id", "value", "optioncode")
+NAME_KEYS = ("name", "nm", "title", "label", "text", "optionname")
+
+
+def looks_like_code_map(arr: list) -> bool:
+    """[{"code":1,"name":"에어서스펜션"}, ...] 형태의 코드→이름 표인가."""
+    head = [x for x in arr[:6] if isinstance(x, dict)]
+    if len(head) < 2 or len(head) != len(arr[:6]):
+        return False
+    keys = {k.lower() for k in head[0]}
+    has_code = any(any(c in k for c in CODE_KEYS) for k in keys)
+    has_name = any(any(n in k for n in NAME_KEYS) for k in keys)
+    return has_code and has_name
+
+
+def build_code_map(payload: Any) -> dict[str, str]:
+    """응답 어디에 있든 옵션 코드→이름 표를 찾아 만든다."""
+    out: dict[str, str] = {}
+    for arr in find_arrays(payload):
+        items = arr.get("ref") or []
+        if not looks_like_code_map(items):
+            continue
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            code = name = None
+            for k, v in it.items():
+                kl = k.lower()
+                if code is None and any(c in kl for c in CODE_KEYS) \
+                        and isinstance(v, (int, str)):
+                    code = str(v)
+                elif name is None and any(n in kl for n in NAME_KEYS) \
+                        and isinstance(v, str) and v.strip():
+                    name = v.strip()
+            if code and name:
+                out.setdefault(code, name)
+        if out:
+            break
+    return out
+
+
+# 옵션이 들어 있을 만한 경로들 (앞쪽이 우선순위)
+OPTION_NAME_PATHS = (
+    "options.standardNames", "options.names", "optionNames",
+    "options.standard", "options.choice", "options.etc", "options.tuning",
+    "optionList", "optionItems", "option.list", "spec.options",
+)
+OPTION_CODE_PATHS = (
+    "options.standard", "options.choice", "options.etc", "options.tuning",
+    "optionCodes", "options.codes",
+)
+
+
+def extract_options(detail: Any,
+                    code_map: dict[str, str] | None = None) -> tuple[list[str], list[str], str]:
+    """상세 응답에서 옵션을 뽑는다.
+
+    반환: (옵션명 목록, 옵션코드 목록, 어디서 찾았는지 설명)
+
+    엔카는 옵션을 숫자 코드 배열로 내려주는 경우가 있다. 그때는 이름을
+    알 수 없으므로 코드만 담고, 호출부가 그 사실을 알 수 있게 표시한다.
+    """
+    if not isinstance(detail, dict):
+        return [], [], "상세 응답 없음"
+
+    names: list[str] = []
+    codes: list[str] = []
+    sources: list[str] = []
+
+    # 1) 알려진 경로 우선
+    for path in OPTION_NAME_PATHS:
+        v = pick(detail, path)
+        if isinstance(v, list) and looks_like_option_names(v):
+            for x in v:
+                if x.strip() and x.strip() not in names:
+                    names.append(x.strip())
+            sources.append(path)
+    for path in OPTION_CODE_PATHS:
+        v = pick(detail, path)
+        if isinstance(v, list) and looks_like_option_codes(v):
+            for x in v:
+                if str(x) not in codes:
+                    codes.append(str(x))
+            if path not in sources:
+                sources.append(path + "(코드)")
+
+    # 2) 못 찾았으면 응답 전체에서 옵션처럼 생긴 배열을 뒤진다
+    if not names:
+        for arr in find_arrays(detail):
+            if arr["len"] >= 3 and looks_like_option_names(arr["sample"], min_len=3):
+                for x in arr["sample"]:
+                    if x.strip() and x.strip() not in names:
+                        names.append(x.strip())
+                sources.append(arr["path"] + "(자동탐색)")
+                break
+
+    # 3) 이름은 없고 코드만 있으면 변환표로 푼다
+    if not names and codes and code_map:
+        resolved = [code_map[c] for c in codes if c in code_map]
+        if resolved:
+            names = resolved
+            sources.append(f"코드→이름 변환 {len(resolved)}/{len(codes)}건")
+
+    src = ", ".join(sources) if sources else "찾지 못함"
+    return names, codes, src
+
+
+# ---------------------------------------------------------------------------
 # 상세 파싱
 # ---------------------------------------------------------------------------
 ACCIDENT_FREE_WORDS = ("무사고", "사고없음", "사고이력없음")
@@ -458,7 +658,8 @@ def _flagged(strings: list[str], words: tuple[str, ...]) -> bool:
 
 
 def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
-                     diagnosis: Any, target: dict) -> dict:
+                     diagnosis: Any, target: dict,
+                     code_map: dict[str, str] | None = None) -> dict:
     """상세/이력/성능점검 응답을 하나의 평탄한 행으로."""
     strs = strings_of(detail, record, inspection, diagnosis)
     hay_flat = " \n ".join(strs).lower().replace(" ", "")
@@ -467,19 +668,13 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
     plate = pick(detail or {}, "vehicleNo", "VehicleNo", "carNo", "CarNo",
                  "vehicle.vehicleNo", "manage.vehicleNo", default="")
 
-    # 옵션 목록: 표준/선택 옵션 이름들을 모은다
-    options: list[str] = []
-    opt_obj = pick(detail or {}, "options", "Options", default=None)
-    if opt_obj is not None:
-        for s in _walk_strings(opt_obj):
-            s = s.strip()
-            if s and not s.isdigit() and len(s) <= 60 and s not in options:
-                options.append(s)
+    # 옵션 목록. 엔카는 옵션명 대신 숫자 코드를 내려주기도 하므로
+    # 이름/코드를 구분해서 담고, 어디서 찾았는지도 남긴다.
+    options, option_codes, option_source = extract_options(detail, code_map)
 
     # 사고/이력 플래그 — 부정어 가드를 거쳐 문자열 단위로 판정
     flood = _flagged(strs, FLOOD_WORDS)
     rental = _flagged(strs, RENTAL_WORDS)
-    diagnosed = bool(diagnosis)
 
     # 에어서스 키워드: 설정 키워드가 아니라 '실제로 매칭된 옵션명'을 남긴다.
     kws = [k.lower().replace(" ", "") for k in target.get("airsus_keywords", [])]
@@ -490,6 +685,17 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
             airsus_hits.append(s.strip())
     if not airsus_hits and any(k in hay_flat for k in kws):
         airsus_hits.append("(옵션 목록 외 텍스트에서 키워드 발견)")
+
+    # 에어서스 판별이 이 프로젝트의 핵심이므로 '모른다' 를 '없다' 로
+    # 뭉개지 않는다. 이름 없이 코드만 왔으면 판별 불가로 표시한다.
+    if airsus_hits:
+        airsus_status = "확인"
+    elif options:
+        airsus_status = "옵션명에 없음"
+    elif option_codes:
+        airsus_status = "판별불가(옵션이 코드로만 옴)"
+    else:
+        airsus_status = "판별불가(옵션 없음)"
 
     # 성능점검 요약: 사람이 읽을 짧은 문장으로
     insp_summary = ""
@@ -520,11 +726,36 @@ def normalize_detail(vid: str, detail: Any, record: Any, inspection: Any,
     else:
         one_owner = _flagged(strs, ONE_OWNER_WORDS)
 
+    # 실제 응답에서 확인된 유용한 필드들
+    origin_price = to_int(pick(detail or {}, "category.originPrice", "originPrice"))
+    warranty = pick(detail or {}, "category.warranty", "warranty", default="")
+    if isinstance(warranty, (dict, list)):
+        warranty = " ".join(str(x) for x in _walk_strings(warranty))[:200]
+    view_count = to_int(pick(detail or {}, "manage.viewCount", "viewCount"))
+    subscribe_count = to_int(pick(detail or {}, "manage.subscribeCount", "subscribeCount"))
+    encar_check = pick(detail or {}, "advertisement.encarCheck", "encarCheck")
+    direct_inspected = pick(detail or {}, "advertisement.directInspected", "directInspected")
+
+    def _yes(v) -> bool:
+        return str(v).strip().lower() in ("y", "true", "1", "yes")
+
+    # 엔카진단은 별도 endpoint 보다 광고 필드가 더 신뢰할 만하다
+    diagnosed = bool(diagnosis) or _yes(encar_check) or _yes(direct_inspected)
+
     return {
         "vehicle_id": vid,
         "plate_no": plate or "",
         "options": " | ".join(options[:80]),
         "options_count": len(options),
+        "option_codes": ",".join(option_codes[:120]),
+        "option_source": option_source,
+        "origin_price_manwon": origin_price if origin_price is not None else "",
+        "warranty": str(warranty)[:200] if warranty else "",
+        "view_count": view_count if view_count is not None else "",
+        "subscribe_count": subscribe_count if subscribe_count is not None else "",
+        "encar_check": _yes(encar_check),
+        "direct_inspected": _yes(direct_inspected),
+        "airsus_status": airsus_status,
         "accident_free": accident_free and not (my_acc or other_acc),
         "accident_my_count": my_acc or 0,
         "accident_other_count": other_acc or 0,

@@ -36,10 +36,15 @@ LISTING_FIELDS = [
     "accident_free", "accident_my_count", "accident_other_count",
     "accident_my_cost_won", "owner_change_count",
     "flood_or_total_loss", "rental_or_commercial", "one_owner",
-    "encar_diagnosed", "has_airsus_keyword", "airsus_keyword_hits",
-    "options_count", "options", "inspection_summary",
-    "photo_url", "listing_url", "collected_at",
+    "encar_diagnosed", "encar_check", "direct_inspected",
+    "has_airsus_keyword", "airsus_status", "airsus_keyword_hits",
+    "options_count", "options", "option_codes", "option_source",
+    "origin_price_manwon", "warranty", "view_count", "subscribe_count",
+    "inspection_summary", "photo_url", "listing_url", "collected_at",
 ]
+
+# 응답에 없어도 정상인 필드 — 매핑 실패로 경고하지 않는다
+OPTIONAL_LISTING_FIELDS = {"trim_detail", "sell_type", "region", "month"}
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +99,7 @@ def cmd_probe(args) -> int:
     ensure_dirs()
     client = api.EncarClient(config.COLLECT)
     target = next((t for t in config.TARGETS if t["key"] == args.model), config.TARGETS[0])
-    n = args.limit or 5
+    n = args.limit or config.PROBE_PAGE_SIZE
 
     print("=" * 74)
     print(f" 엔카 API 진단  —  {target['label']}")
@@ -157,15 +162,77 @@ def cmd_probe(args) -> int:
     norm = api.normalize_listing(results[0], target)
     missing = []
     for k, v in norm.items():
-        bad = v in (None, "")
-        if bad:
+        empty = v in (None, "")
+        if empty and k in OPTIONAL_LISTING_FIELDS:
+            note = "   (선택 항목 — 없어도 정상)"
+        elif empty:
+            note = "   <-- 매핑 실패"
             missing.append(k)
-        print(f"    {k:>14} = {v!r}{'   <-- 매핑 실패' if bad else ''}")
+        else:
+            note = ""
+        print(f"    {k:>14} = {v!r}{note}")
     if missing:
         warn(f"매핑 실패 필드: {missing} — 위 [4] 목록에서 실제 키를 찾아 알려주세요.")
 
-    # ---------------- 6. 연식 필터 ----------------
-    print("\n[6] 연식 필터가 실제로 작동하는지")
+    # ---------------- 6. 조건별 매물 수 ----------------
+    print("\n[6] 어떤 검색 조건이 매물을 걸러내는지 (조건을 하나씩 빼며 총건수 비교)")
+
+    def _count_for(label: str, **kw) -> int | None:
+        qq = api.build_query(target, ep["ad_type"], **kw)
+        code_c, payload_c, snip_c, _ = client.raw_get(
+            ep["url"], {"count": "true", "q": qq, "sr": api.build_sr(0, 1, config.SORT_KEY)},
+            stage=f"count:{label}")
+        if code_c != 200 or payload_c is None:
+            print(f"    {label:34} {_status(code_c)}  {snip_c[:60] if snip_c else ''}")
+            return None
+        return api.extract_total_count(payload_c)
+
+    has_model = bool(target.get("model"))
+    base_kw = dict(include_year=True, include_model=has_model)
+    base = _count_for("전체 조건 (현재 설정)", **base_kw)
+    print(f"    {'전체 조건 (현재 설정)':34} {base if base is not None else '-'}건   <- 기준")
+
+    variants = [
+        ("연식 필터 제거",              dict(base_kw, include_year=False)),
+        ("Hidden/MultiViewHidden 제거", dict(base_kw, include_hidden=False)),
+        ("CarType 제거",               dict(base_kw, include_car_type=False)),
+        ("AdType 제거",                dict(base_kw, include_ad=False)),
+    ]
+    if has_model:
+        variants.append(("하위 Model 제거(ModelGroup만)", dict(base_kw, include_model=False)))
+    variants.append(("조건 최소화(제조사+모델그룹만)",
+                     dict(include_year=False, include_model=False, include_hidden=False,
+                          include_car_type=False, include_ad=False)))
+
+    for label, kw in variants:
+        c = _count_for(label, **kw)
+        if c is None:
+            continue
+        if base:
+            diff = c - base
+            note = f"   ({diff:+d}건)" if diff else "   (변화 없음)"
+            if diff > 0:
+                note += "  <-- 이 조건이 매물을 걸러내고 있음"
+        else:
+            note = ""
+        print(f"    {label:34} {c}건{note}")
+
+    # CarType 값이 반대일 가능성도 본다
+    alt = dict(target)
+    alt["car_type"] = "Y" if target.get("car_type", "N") == "N" else "N"
+    q_alt = api.build_query(alt, ep["ad_type"], **base_kw)
+    code_a, payload_a, _, _ = client.raw_get(
+        ep["url"], {"count": "true", "q": q_alt, "sr": api.build_sr(0, 1, config.SORT_KEY)},
+        stage="count:cartype-alt")
+    c_alt = api.extract_total_count(payload_a) if code_a == 200 else None
+    alt_label = f"CarType.{alt['car_type']} 로 바꿔보기"
+    print(f"    {alt_label:34} {c_alt if c_alt is not None else '-'}건")
+    if c_alt and base and c_alt > base:
+        warn(f"CarType.{alt['car_type']} 가 더 많은 매물을 돌려줍니다 "
+             f"({base} -> {c_alt}건). config.py 의 car_type 을 바꾸는 게 좋습니다.")
+
+    # ---------------- 7. 연식 필터 ----------------
+    print("\n[7] 연식 필터가 실제로 작동하는지")
     q_year = args.q or api.build_query(target, ep["ad_type"], include_year=True,
                                        include_model=bool(target.get("model")))
     code_y, payload_y, snip_y, _ = client.raw_get(
@@ -202,10 +269,12 @@ def cmd_probe(args) -> int:
             print(f"    -> 연식 필터 작동 확인 ({want} 범위 내, "
                   f"총건수 {cnt_no} -> {cnt_y}건으로 감소)")
 
-    # ---------------- 7. 페이징 ----------------
-    print("\n[7] 페이징(sr 파라미터)이 실제로 작동하는지")
+    # ---------------- 8. 페이징 ----------------
+    print("\n[8] 페이징(sr 파라미터)이 실제로 작동하는지")
     q_page = q_year if (code_y == 200 and payload_y) else q_noyear
-    page_size = max(2, min(n, 5))
+    # 페이징은 '작동하는가' 를 보는 것이므로 일부러 작은 페이지로 확인한다.
+    # 큰 페이지를 쓰면 2페이지가 비어서 판정이 되지 않는다.
+    page_size = 5
     pages = {}
     for off in (0, page_size):
         code_p, payload_p, _, _ = client.raw_get(
@@ -228,13 +297,13 @@ def cmd_probe(args) -> int:
     else:
         print("    -> 페이징 작동 확인 (두 페이지 중복 0건)")
 
-    # ---------------- 8. 상세 API ----------------
+    # ---------------- 9. 상세 API ----------------
     vid = norm.get("vehicle_id")
     if not vid:
         warn("매물 ID 를 못 찾아 상세 API 를 시험하지 못했습니다.")
         return 0
 
-    print(f"\n[8] 상세 API 시험 호출  (매물 ID = {vid})")
+    print(f"\n[9] 상세 API 시험 호출  (매물 ID = {vid})")
     detail_probes = [
         ("상세(차량번호/옵션)", api.DETAIL_URL.format(vid=vid), {"include": api.DETAIL_INCLUDE}),
         ("사고이력(record)", api.RECORD_URL.format(vid=vid), None),
@@ -255,24 +324,112 @@ def cmd_probe(args) -> int:
         print(f"    {label:22} {_status(code_d):10} {note}")
 
     detail = got.get("상세(차량번호/옵션)")
-    if detail:
-        write_json(os.path.join(os.path.dirname(DETAILS_JSON), "raw_probe_detail.json"), detail)
-        print("\n    -- 상세 응답 구조 --")
-        for line in _describe(detail, max_depth=2)[:60]:
-            print("      " + line)
-        plate = api.pick(detail, "vehicleNo", "VehicleNo", "carNo", "CarNo",
-                         "vehicle.vehicleNo", "manage.vehicleNo")
-        print(f"\n    차량번호 추출: {plate!r}")
-        if not plate:
-            warn("차량번호를 못 찾았습니다. 위 구조에서 번호판이 담긴 키를 찾아 알려주세요.")
-        nd = api.normalize_detail(vid, detail, got.get("사고이력(record)"),
-                                  got.get("성능점검(inspection)"),
-                                  got.get("엔카진단(diagnosis)"), target)
-        print(f"    옵션 {nd['options_count']}개 추출: {nd['options'][:120]}")
-        print(f"    무사고={nd['accident_free']} 엔카진단={nd['encar_diagnosed']} "
-              f"에어서스키워드={nd['airsus_keyword_hits'] or '없음'}")
-    else:
+    if not detail:
         warn("상세 응답을 못 받아 차량번호/옵션을 확인하지 못했습니다.")
+        return 0
+
+    # 상세 응답 '전체' 를 저장한다. 옵션 위치를 찾으려면 잘린 요약이 아니라
+    # 원본이 필요하다.
+    raw_detail = os.path.join(os.path.dirname(DETAILS_JSON), "raw_detail.json")
+    write_json(raw_detail, {"vehicle_id": vid, "detail": detail,
+                            "record": got.get("사고이력(record)"),
+                            "inspection": got.get("성능점검(inspection)"),
+                            "diagnosis": got.get("엔카진단(diagnosis)")})
+    print(f"\n    상세 응답 전체 저장 -> {raw_detail}")
+
+    plate = api.pick(detail, "vehicleNo", "VehicleNo", "carNo", "CarNo",
+                     "vehicle.vehicleNo", "manage.vehicleNo")
+    print(f"    차량번호 추출: {plate!r}")
+    if not plate:
+        warn("차량번호를 못 찾았습니다. raw_detail.json 에서 번호판 키를 찾아 알려주세요.")
+
+    # ---------------- 10. 옵션 배열 위치 찾기 ----------------
+    print("\n[10] 옵션 배열 탐색  (에어서스 판별의 핵심)")
+    arrays = api.find_arrays(detail)
+    if not arrays:
+        warn("상세 응답에 배열이 하나도 없습니다.")
+    else:
+        print(f"    상세 응답 안의 배열 {len(arrays)}개:")
+        for a in arrays:
+            kinds = "/".join(a["kinds"]) or "빈배열"
+            sample = repr(a["sample"])[:90]
+            tag = ""
+            if api.looks_like_option_names(a["sample"]):
+                tag = "   <== 옵션명 배열로 보임"
+            elif api.looks_like_code_map(a["sample"]):
+                tag = "   <== 코드→이름 변환표로 보임"
+            elif api.looks_like_option_codes(a["sample"]):
+                tag = "   <== 옵션 코드 배열로 보임 (이름 없음)"
+            print(f"      {a['path']:38} len={a['len']:<4} [{kinds}] {sample}{tag}")
+
+    found_map: dict[str, str] = {}
+    names, codes, src = api.extract_options(detail)
+    print(f"\n    추출된 옵션명 {len(names)}개 (출처: {src})")
+    if names:
+        print(f"      {', '.join(names[:25])}")
+    if codes:
+        print(f"    추출된 옵션 코드 {len(codes)}개: {', '.join(codes[:30])}")
+
+    if not names and codes:
+        warn("옵션이 '이름' 없이 '코드' 로만 옵니다. 코드→이름 변환표가 필요합니다.")
+        print("\n    코드 변환표가 있을 만한 경로를 시험합니다:")
+        for label, url, params in [
+            ("옵션 마스터", api.OPTIONS_MASTER_URL, None),
+            ("차량 옵션 상세", api.DETAIL_URL.format(vid=vid) + "/options", None),
+            ("include=OPTIONS만", api.DETAIL_URL.format(vid=vid), {"include": "OPTIONS"}),
+            ("include 없이 전체", api.DETAIL_URL.format(vid=vid), None),
+        ]:
+            # 후보 경로 하나가 죽어도 진단 전체를 날리지 않는다.
+            try:
+                code_o, payload_o, snip_o, _ = client.raw_get(url, params, stage=f"opt:{label}")
+            except api.EncarUnreachable as e:
+                print(f"      {label:20} 연결실패   ({str(e.detail)[:60]})")
+                continue
+            except RuntimeError as e:
+                print(f"      {label:20} 실패       ({str(e)[:60]})")
+                continue
+            hit = ""
+            if payload_o is not None:
+                cmap = api.build_code_map(payload_o)
+                if cmap:
+                    resolved = [cmap[c] for c in codes if c in cmap]
+                    found_map = cmap
+                    hit = (f"  <== 코드→이름 변환표 {len(cmap)}개 발견! "
+                           f"이 매물 코드 {len(resolved)}/{len(codes)}건 해석됨")
+                else:
+                    n2, _c2, s2 = (api.extract_options(payload_o)
+                                   if isinstance(payload_o, dict) else ([], [], ""))
+                    arrs = api.find_arrays(payload_o)
+                    named = [a for a in arrs if api.looks_like_option_names(a["sample"])]
+                    if n2:
+                        hit = f"  <== 옵션명 {len(n2)}개 발견! (출처 {s2})"
+                    elif named:
+                        hit = (f"  <== 이름 배열 후보: {named[0]['path']} "
+                               f"{repr(named[0]['sample'])[:60]}")
+            print(f"      {label:20} {_status(code_o):10}{hit}")
+            if found_map:
+                names2 = [found_map[c] for c in codes if c in found_map]
+                print(f"         -> 이 매물 옵션: {', '.join(names2[:20]) or '(해석 실패)'}")
+                break
+
+        if not found_map:
+            print("\n    변환표를 찾지 못했습니다. data/raw_detail.json 을 "
+                  "저장해 두었으니 알려주세요.")
+
+    nd = api.normalize_detail(vid, detail, got.get("사고이력(record)"),
+                              got.get("성능점검(inspection)"),
+                              got.get("엔카진단(diagnosis)"), target,
+                              code_map=found_map or None)
+    print(f"\n[11] 최종 파싱 결과")
+    for k in ("plate_no", "options_count", "option_source", "airsus_status",
+              "airsus_keyword_hits", "accident_free", "encar_diagnosed",
+              "encar_check", "direct_inspected", "origin_price_manwon",
+              "warranty", "view_count", "subscribe_count"):
+        v = nd.get(k)
+        print(f"    {k:22}= {v!r}")
+    if nd.get("airsus_status", "").startswith("판별불가"):
+        warn("에어서스 판별이 불가능한 상태입니다. 이 프로젝트의 핵심 지표이므로 "
+             "[10] 출력을 알려주시면 파서를 맞추겠습니다.")
 
     print("\n" + "=" * 74)
     print(" 진단 끝. '<--' 표시나 경고가 있으면 그 줄을 그대로 복사해서 알려주세요.")
@@ -394,6 +551,11 @@ def collect_target(client, target: dict, limit: int, with_detail: bool,
     rows: list[dict] = []
     seen: set[str] = set()
 
+    # 옵션이 코드로 오는 경우를 대비해 변환표를 1회만 받아 둔다
+    code_map = client.option_code_map()
+    if code_map:
+        log(f"  옵션 코드 변환표 {len(code_map)}개 확보")
+
     for ep_name in config.USE_ENDPOINTS:
         if len(rows) >= limit:
             break
@@ -402,7 +564,7 @@ def collect_target(client, target: dict, limit: int, with_detail: bool,
                             include_model=bool(target.get("model")))
         log(f"  [{ep_name}] q = {q}")
 
-        offset, page_size, total = 0, 20, None
+        offset, page_size, total = 0, config.PAGE_SIZE, None
         while len(rows) < limit:
             try:
                 payload = client.search(q, ep["url"], offset=offset,
@@ -462,8 +624,15 @@ def collect_target(client, target: dict, limit: int, with_detail: bool,
         bucket.update({"detail": detail, "record": record,
                        "inspection": inspection, "diagnosis": diagnosis})
 
-        listing.update(api.normalize_detail(vid, detail, record, inspection, diagnosis, target))
+        listing.update(api.normalize_detail(vid, detail, record, inspection,
+                                            diagnosis, target, code_map=code_map))
         listing["collected_at"] = datetime.now().isoformat(timespec="seconds")
+
+    undet = [r["vehicle_id"] for r in rows
+             if str(r.get("airsus_status", "")).startswith("판별불가")]
+    if undet:
+        warn(f"에어서스 판별 불가 {len(undet)}건 — 옵션이 코드로만 왔고 변환표가 없습니다. "
+             f"`--probe` 의 [10] 출력을 확인하세요.")
 
     missing_plate = [r["vehicle_id"] for r in rows if not r.get("plate_no")]
     if missing_plate:

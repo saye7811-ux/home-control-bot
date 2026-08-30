@@ -24,7 +24,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2027-04"
+     },
      "formYear": 2022,
      "yearMonth": 202204
     },
@@ -33,7 +39,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 6557
+     "price": 6557,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 300,
+     "subscribeCount": 0
     },
     "options": {
      "standard": [
@@ -93,7 +105,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2029-11"
+     },
      "formYear": 2024,
      "yearMonth": 202411
     },
@@ -102,7 +120,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 8574
+     "price": 8574,
+     "encarCheck": "N",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 347,
+     "subscribeCount": 3
     },
     "options": {
      "standard": [
@@ -159,7 +183,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2027-12"
+     },
      "formYear": 2022,
      "yearMonth": 202212
     },
@@ -168,7 +198,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 6548
+     "price": 6548,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 394,
+     "subscribeCount": 6
     },
     "options": {
      "standard": [
@@ -228,7 +264,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2027-03"
+     },
      "formYear": 2022,
      "yearMonth": 202203
     },
@@ -237,7 +279,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 6085
+     "price": 6085,
+     "encarCheck": "N",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 441,
+     "subscribeCount": 9
     },
     "options": {
      "standard": [
@@ -294,7 +342,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2029-06"
+     },
      "formYear": 2024,
      "yearMonth": 202406
     },
@@ -303,7 +357,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 8366
+     "price": 8366,
+     "encarCheck": "N",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 488,
+     "subscribeCount": 12
     },
     "options": {
      "standard": [
@@ -360,7 +420,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2027-05"
+     },
      "formYear": 2022,
      "yearMonth": 202205
     },
@@ -369,7 +435,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 6514
+     "price": 6514,
+     "encarCheck": "N",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 535,
+     "subscribeCount": 15
     },
     "options": {
      "standard": [
@@ -428,7 +500,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2027-09"
+     },
      "formYear": 2022,
      "yearMonth": 202209
     },
@@ -437,7 +515,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 6853
+     "price": 6853,
+     "encarCheck": "N",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 582,
+     "subscribeCount": 18
     },
     "options": {
      "standard": [
@@ -496,7 +580,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2028-01"
+     },
      "formYear": 2023,
      "yearMonth": 202301
     },
@@ -505,7 +595,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 6679
+     "price": 6679,
+     "encarCheck": "N",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 629,
+     "subscribeCount": 21
     },
     "options": {
      "standard": [
@@ -562,7 +658,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2027-06"
+     },
      "formYear": 2022,
      "yearMonth": 202206
     },
@@ -571,7 +673,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 6884
+     "price": 6884,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 676,
+     "subscribeCount": 24
     },
     "options": {
      "standard": [
@@ -633,7 +741,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2027-03"
+     },
      "formYear": 2022,
      "yearMonth": 202203
     },
@@ -642,7 +756,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 6048
+     "price": 6048,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 723,
+     "subscribeCount": 27
     },
     "options": {
      "standard": [
@@ -702,7 +822,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2028-03"
+     },
      "formYear": 2023,
      "yearMonth": 202303
     },
@@ -711,7 +837,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 7860
+     "price": 7860,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 770,
+     "subscribeCount": 30
     },
     "options": {
      "standard": [
@@ -773,7 +905,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2028-12"
+     },
      "formYear": 2023,
      "yearMonth": 202312
     },
@@ -782,7 +920,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 8249
+     "price": 8249,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 817,
+     "subscribeCount": 33
     },
     "options": {
      "standard": [
@@ -842,7 +986,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2028-12"
+     },
      "formYear": 2023,
      "yearMonth": 202312
     },
@@ -851,7 +1001,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 7776
+     "price": 7776,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 864,
+     "subscribeCount": 36
     },
     "options": {
      "standard": [
@@ -913,7 +1069,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2029-09"
+     },
      "formYear": 2024,
      "yearMonth": 202409
     },
@@ -922,7 +1084,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 9101
+     "price": 9101,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 911,
+     "subscribeCount": 39
     },
     "options": {
      "standard": [
@@ -984,7 +1152,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2029-02"
+     },
      "formYear": 2024,
      "yearMonth": 202402
     },
@@ -993,7 +1167,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 8065
+     "price": 8065,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 958,
+     "subscribeCount": 42
     },
     "options": {
      "standard": [
@@ -1053,7 +1233,13 @@
     "category": {
      "manufacturerName": "비엠더블유",
      "modelName": "iX",
+     "type": "CAR",
      "gradeName": "xDrive50",
+     "gradeDetailName": null,
+     "originPrice": 14990,
+     "warranty": {
+      "text": "제조사보증 2027-01"
+     },
      "formYear": 2022,
      "yearMonth": 202201
     },
@@ -1062,7 +1248,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 5573
+     "price": 5573,
+     "encarCheck": "N",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 1005,
+     "subscribeCount": 45
     },
     "options": {
      "standard": [
@@ -1121,7 +1313,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2029-02"
+     },
      "formYear": 2024,
      "yearMonth": 202402
     },
@@ -1130,7 +1328,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 8479
+     "price": 8479,
+     "encarCheck": "N",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 300,
+     "subscribeCount": 0
     },
     "options": {
      "standard": [
@@ -1188,7 +1392,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2028-02"
+     },
      "formYear": 2023,
      "yearMonth": 202302
     },
@@ -1197,7 +1407,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 7176
+     "price": 7176,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 347,
+     "subscribeCount": 3
     },
     "options": {
      "standard": [
@@ -1258,7 +1474,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2029-02"
+     },
      "formYear": 2024,
      "yearMonth": 202402
     },
@@ -1267,7 +1489,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 8979
+     "price": 8979,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 394,
+     "subscribeCount": 6
     },
     "options": {
      "standard": [
@@ -1328,7 +1556,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2028-04"
+     },
      "formYear": 2023,
      "yearMonth": 202304
     },
@@ -1337,7 +1571,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 7697
+     "price": 7697,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 441,
+     "subscribeCount": 9
     },
     "options": {
      "standard": [
@@ -1398,7 +1638,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2029-04"
+     },
      "formYear": 2024,
      "yearMonth": 202404
     },
@@ -1407,7 +1653,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 8712
+     "price": 8712,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 488,
+     "subscribeCount": 12
     },
     "options": {
      "standard": [
@@ -1466,7 +1718,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2029-06"
+     },
      "formYear": 2024,
      "yearMonth": 202406
     },
@@ -1475,7 +1733,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 9442
+     "price": 9442,
+     "encarCheck": "N",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 535,
+     "subscribeCount": 15
     },
     "options": {
      "standard": [
@@ -1531,7 +1795,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2029-01"
+     },
      "formYear": 2024,
      "yearMonth": 202401
     },
@@ -1540,7 +1810,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 8424
+     "price": 8424,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 582,
+     "subscribeCount": 18
     },
     "options": {
      "standard": [
@@ -1599,7 +1875,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2029-08"
+     },
      "formYear": 2024,
      "yearMonth": 202408
     },
@@ -1608,7 +1890,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 9258
+     "price": 9258,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 629,
+     "subscribeCount": 21
     },
     "options": {
      "standard": [
@@ -1669,7 +1957,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2028-10"
+     },
      "formYear": 2023,
      "yearMonth": 202310
     },
@@ -1678,7 +1972,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 7726
+     "price": 7726,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 676,
+     "subscribeCount": 24
     },
     "options": {
      "standard": [
@@ -1739,7 +2039,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2029-03"
+     },
      "formYear": 2024,
      "yearMonth": 202403
     },
@@ -1748,7 +2054,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 8362
+     "price": 8362,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 723,
+     "subscribeCount": 27
     },
     "options": {
      "standard": [
@@ -1807,7 +2119,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2028-03"
+     },
      "formYear": 2023,
      "yearMonth": 202303
     },
@@ -1816,7 +2134,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 7091
+     "price": 7091,
+     "encarCheck": "Y",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 770,
+     "subscribeCount": 30
     },
     "options": {
      "standard": [
@@ -1877,7 +2201,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2029-11"
+     },
      "formYear": 2024,
      "yearMonth": 202411
     },
@@ -1886,7 +2216,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 9424
+     "price": 9424,
+     "encarCheck": "N",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 817,
+     "subscribeCount": 33
     },
     "options": {
      "standard": [
@@ -1942,7 +2278,13 @@
     "category": {
      "manufacturerName": "벤츠",
      "modelName": "EQE SUV",
+     "type": "CAR",
      "gradeName": "350 4MATIC",
+     "gradeDetailName": null,
+     "originPrice": 13260,
+     "warranty": {
+      "text": "제조사보증 2029-12"
+     },
      "formYear": 2024,
      "yearMonth": 202412
     },
@@ -1951,7 +2293,13 @@
      "fuelName": "전기"
     },
     "advertisement": {
-     "price": 9299
+     "price": 9299,
+     "encarCheck": "N",
+     "directInspected": "N"
+    },
+    "manage": {
+     "viewCount": 864,
+     "subscribeCount": 36
     },
     "options": {
      "standard": [

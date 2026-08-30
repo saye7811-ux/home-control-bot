@@ -27,13 +27,15 @@ from common import (
 SCORED_FIELDS = [
     "rank", "model_key", "model_label", "vehicle_id", "plate_no",
     "price_manwon", "predicted_price_manwon", "residual_manwon", "value_pct",
+    "origin_price_manwon", "depreciation_pct",
     "year", "month", "age_years", "mileage_km", "annual_km", "region",
     "trim", "trim_detail",
     "battery_years_left", "battery_km_left", "battery_remaining_pct", "battery_binding",
     "accident_free", "accident_my_count", "accident_other_count",
     "accident_my_cost_won", "owner_change_count",
     "flood_or_total_loss", "rental_or_commercial", "one_owner", "encar_diagnosed",
-    "has_airsus_keyword", "airsus_keyword_hits",
+    "has_airsus_keyword", "airsus_status", "airsus_keyword_hits",
+    "option_source", "warranty", "view_count", "subscribe_count",
     "score_value", "score_battery", "bonus_total", "penalty_overrun", "penalty_total",
     "score_stage2", "score_total", "market_confidence",
     "reasons_plus", "reasons_minus",
@@ -119,7 +121,7 @@ def main() -> int:
     rows = []
     from common import to_int
     for r in raw:
-        for k in ("price_manwon", "year", "month", "mileage_km",
+        for k in ("price_manwon", "year", "month", "mileage_km", "origin_price_manwon",
                   "accident_my_count", "accident_other_count", "accident_my_cost_won"):
             r[k] = to_int(r.get(k))
         rows.append(scoring.enrich(r))

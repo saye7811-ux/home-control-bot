@@ -152,6 +152,9 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         plus = [s for s in (r.get("reasons_plus") or "").split(" ; ") if s]
         minus = [s for s in (r.get("reasons_minus") or "").split(" ; ") if s]
 
+        if str(r.get("airsus_status", "")).startswith("판별불가"):
+            minus = list(minus) + ["에어서스 여부 확인 불가 (옵션 정보 부족)"]
+
         hidden_bits = []
         if stage == "final":
             if r.get("hidden_battery_maker"):
@@ -179,7 +182,8 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
           {hidden_html}
         </td>
         <td class="num"><b>{fmt_manwon(r.get('price_manwon'))}</b>
-          <div class="muted small">예측 {fmt_manwon(r.get('predicted_price_manwon'))}</div></td>
+          <div class="muted small">예측 {fmt_manwon(r.get('predicted_price_manwon'))}</div>
+          {f'<div class="muted small">신차가 대비 -{_e(r.get("depreciation_pct"))}%</div>' if r.get('depreciation_pct') not in ('', None) else ''}</td>
         <td class="num">{_e(r.get('year'))}.{_e(str(r.get('month') or '').zfill(2))}
           <div class="muted small">{fmt_km(r.get('mileage_km'))}</div></td>
         <td class="num">{_e(r.get('annual_km') and f"{to_int(r.get('annual_km')):,}" or '-')}

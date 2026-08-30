@@ -117,6 +117,14 @@ def enrich(row: dict) -> dict:
     else:
         row["annual_km"] = ""
 
+    # 신차가 대비 감가율 (category.originPrice 가 있을 때만)
+    origin = to_int(row.get("origin_price_manwon"))
+    price = to_float(row.get("price_manwon"))
+    if origin and price and origin > 0:
+        row["depreciation_pct"] = round((1 - price / origin) * 100, 1)
+    else:
+        row["depreciation_pct"] = ""
+
     # 배터리 보증 잔여: 8년 / 16만km 중 먼저 도달하는 쪽
     w_yrs = config.BATTERY_WARRANTY["years"]
     w_km = config.BATTERY_WARRANTY["km"]

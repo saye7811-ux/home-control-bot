@@ -42,6 +42,7 @@ def make(key, label, mfr, mg, model, badge, y_from, y_to, base, dep_per_yr,
         fair = base - dep_per_yr * age - dep_per_1000km * (km / 1000.0)
         fair += 250 if has_air else 0
         price = int(max(2500, fair + random.gauss(0, 260)))
+        origin_price = 14990 if key == "ix_xdrive50" else 13260
 
         acc_my = 0 if random.random() < 0.62 else random.randint(1, 2)
         acc_other = 0 if random.random() < 0.75 else 1
@@ -88,11 +89,17 @@ def make(key, label, mfr, mg, model, badge, y_from, y_to, base, dep_per_yr,
                 "vehicleNo": plate(seq_base + i),
                 "category": {
                     "manufacturerName": mfr, "modelName": model,
-                    "gradeName": badge, "formYear": year,
+                    "type": "CAR", "gradeName": badge, "gradeDetailName": None,
+                    "originPrice": origin_price,
+                    "warranty": {"text": f"제조사보증 {year + 5}-{month:02d}"},
+                    "formYear": year,
                     "yearMonth": int(f"{year}{month:02d}"),
                 },
                 "spec": {"mileage": km, "fuelName": "전기"},
-                "advertisement": {"price": price},
+                "advertisement": {"price": price,
+                                  "encarCheck": "Y" if diagnosed else "N",
+                                  "directInspected": "N"},
+                "manage": {"viewCount": 300 + i * 47, "subscribeCount": i * 3},
                 "options": {"standard": opts},
                 "photos": [{"path": f"/carpicture/ce{vid}/001.jpg"}],
             },
