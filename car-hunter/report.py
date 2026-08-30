@@ -446,6 +446,10 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
 
         # 성능기록부가 사진뿐이면 행 전체를 표시해 둔다. 수리 이력을
         # 아예 모르는 매물이라 다른 매물과 같은 눈으로 보면 안 된다.
+        # 차량번호를 그대로 엔카 매물로 연결한다. 리포트에서 매물을 볼 때
+        # 링크 칸까지 눈을 옮길 필요가 없다.
+        plate_html = (f'<a href="{_e(url)}" target="_blank" rel="noopener">{_e(plate)}</a>'
+                      if url else _e(plate))
         photo_only = str(r.get("page_is_image", "")).strip().lower() in ("true", "1")
         row_cls = ' class="row-photo"' if photo_only else ""
         photo_flag = ('<div class="flag-photo">성능기록부 사진뿐 — 원본 요구 필수</div>'
@@ -455,7 +459,7 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
       <tr{row_cls}>
         <td class="rank">{i}</td>
         <td>
-          <div class="plate">{_e(plate)}</div>
+          <div class="plate">{plate_html}</div>
           <div class="muted small">{_e(r.get('model_label'))} · {_e(r.get('trim'))}</div>
           {photo_flag}
           {hidden_html}
@@ -518,6 +522,8 @@ th{font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap}
 td.num,th.num{text-align:right;white-space:nowrap}
 td.rank{font-weight:700;color:var(--muted);width:34px}
 td.links,th.links{width:56px}
+.plate a{color:inherit;text-decoration:none;border-bottom:2px solid var(--border)}
+.plate a:hover{border-bottom-color:var(--good)}
 .plate{display:inline-block;background:var(--plate-bg);color:var(--plate-fg);
 font-weight:800;letter-spacing:1px;padding:6px 14px;border-radius:6px;
 font-size:20px;font-family:ui-monospace,Menlo,monospace;
@@ -554,6 +560,12 @@ border:2px solid var(--plate-fg)}
 .brief-picks{margin:0 0 12px;padding-left:18px}
 .brief-picks li{margin:8px 0;line-height:1.55}
 .brief-changes{padding-top:10px;border-top:1px solid var(--border);font-size:13px}
+.lookup{margin:14px 0;padding:12px 16px;border:1px solid var(--border);
+        border-radius:10px;background:var(--card)}
+.lookup summary{cursor:pointer;font-weight:800;font-size:15px}
+.plates{background:var(--bg);border:1px solid var(--border);border-radius:8px;
+        padding:10px 12px;font-size:15px;letter-spacing:.04em;
+        white-space:pre-wrap;word-break:break-all;user-select:all}
 .alerts{margin:22px 0 8px}
 .alerts.none{padding:16px 18px;border:1px dashed var(--border);border-radius:10px}
 .alerts.none h2{margin:0 0 4px;font-size:17px}
@@ -723,6 +735,47 @@ def _brief_section(brief: dict | None) -> str:
   </div>"""
 
 
+def _lookup_list_section(ranked: list[dict], n: int = 10) -> str:
+    """헤이딜러 '숨은이력찾기' 에 넣을 차량번호만 모아 둔다.
+
+    헤이딜러는 약관상 자동 조회가 금지돼 있어 사람이 직접 넣어야 한다.
+    그래서 '복사해서 붙여넣기 좋은 형태' 가 실제로 필요한 기능이다.
+
+    지금 헤이딜러가 필요한 항목은 에어서스·후륜조향(출고 옵션)과 정비이력
+    뿐이다. 보험 수리이력은 엔카 record 로 이미 건별까지 받고 있고,
+    배터리 제조사는 트림명으로 판정된다.
+    """
+    picks = [r for r in ranked if r.get("plate_no")][:n]
+    if not picks:
+        return ""
+    plates = " ".join(r["plate_no"] for r in picks)
+    rows = "".join(
+        f'<tr><td><b>{_e(r["plate_no"])}</b></td>'
+        f'<td class="muted">{_e(r.get("model_label") or "")} '
+        f'{_e(r.get("trim_key") or "")}</td>'
+        f'<td class="num">{fmt_manwon(r.get("price_manwon"))}</td>'
+        f'<td class="num">{_e(str(r.get("value_gap_sigma") or ""))}&sigma;</td>'
+        f'<td>{_e(r.get("battery_maker") or "미확인")}</td>'
+        f'<td><a href="{_e(r.get("listing_url") or "")}" target="_blank">매물</a></td></tr>'
+        for r in picks)
+    return f"""
+  <details class="lookup">
+    <summary>헤이딜러 조회 대상 {len(picks)}대 — 차량번호 복사용</summary>
+    <p class="muted">헤이딜러 <b>숨은이력찾기</b>는 약관상 자동 조회가 금지돼 있어
+      직접 넣으셔야 합니다. 아래 번호를 한 줄로 복사해 쓰세요.
+      결과 화면은 <code>hidden/</code> 폴더에 차량번호를 파일명으로 저장하면
+      자동으로 매칭됩니다 (예: <code>hidden/{_e(picks[0]["plate_no"])}.png</code>).</p>
+    <pre class="plates">{_e(plates)}</pre>
+    <p class="muted">지금 헤이딜러에서 확인할 것은 <b>에어서스·후륜조향(출고 옵션)</b>과
+      <b>정비 이력</b> 둘뿐입니다. 보험 수리이력은 엔카에서 건별 금액까지
+      이미 받고 있고, 배터리 제조사는 트림명으로 판정됩니다.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>차량번호</th><th>모델</th><th class="num">가격</th>
+      <th class="num">σ</th><th>배터리</th><th>링크</th></tr></thead>
+      <tbody>{rows}</tbody></table></div>
+  </details>"""
+
+
 def _alerts_section(alerts: dict | None) -> str:
     """이번 주에 손댈 것만 맨 위에. 없으면 한 줄로 끝낸다."""
     if alerts is None:
@@ -825,6 +878,7 @@ def build_html(models: list[tuple], ranked: list[dict], stage: str,
   {_brief_section(brief)}
   {banner}{note_html}
   {_alerts_section(alerts)}
+  {_lookup_list_section(ranked)}
   {_diff_section(diff)}
   {_trend_section(trend)}
 
