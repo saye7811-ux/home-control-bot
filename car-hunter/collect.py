@@ -1083,39 +1083,93 @@ def cmd_inspect_page(args) -> int:
     print(f"  불량      : {parsed.get('detail_bad') or '(없음)'}")
     print(f"  판정 불가  : {parsed.get('detail_unknown') or '(없음)'}")
 
-    # --- 판정 불가 항목의 실제 마크업을 보여준다 ---
-    if unknown_keys or parsed.get("ev_hv_unknown") or not parsed["repairs"]:
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html_text, "lxml")
-        print("\n" + "=" * 74)
-        print(" 판정 불가 항목의 실제 마크업 (이 부분을 그대로 보내주세요)")
-        print("=" * 74)
+    # --- 판정 불가 항목의 실제 마크업을 전부 보여준다 ---
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html_text, "lxml")
 
-        targets: list[str] = []
-        for key, labels, _kind in config.INSPECTION_PAGE_FIELDS:
-            if key in unknown_keys:
-                targets.append(labels[0])
-        for u in (parsed.get("ev_hv_unknown") or []):
-            targets.append(u.split("(")[0].strip())
-        if not parsed["repairs"]:
-            targets += ["1랭크", "2랭크", "A랭크"]
+    def _dump(label: str, keywords: list[str], limit: int = 1) -> int:
+        """키워드가 든 가장 작은 블록의 원문을 보여준다.
 
+        <tr> 만 뒤지면 div/ul 구조를 못 찾는다. 태그를 가리지 않고
+        '키워드를 담은 가장 작은 요소' 의 부모까지 보여준다.
+        """
         shown = 0
-        for label in dict.fromkeys(targets):
-            for tr in soup.find_all("tr"):
-                if label.replace(" ", "") not in tr.get_text(" ", strip=True).replace(" ", ""):
+        seen_html: set[str] = set()
+        for kw in keywords:
+            flat = kw.replace(" ", "")
+            best = None
+            for el in soup.find_all(True):
+                if el.name in ("html", "body", "head", "script", "style"):
                     continue
-                print(f"\n--- {label} ---")
-                print(str(tr)[:900])
-                shown += 1
-                break
-            if shown >= 8:
+                t = el.get_text(" ", strip=True).replace(" ", "")
+                if flat not in t:
+                    continue
+                if best is None or len(t) < len(
+                        best.get_text(" ", strip=True).replace(" ", "")):
+                    best = el
+            if best is None:
+                continue
+            node = best.parent if best.parent is not None and \
+                best.parent.name not in ("body", "html") else best
+            frag = str(node)[:1000]
+            if frag in seen_html:
+                continue
+            seen_html.add(frag)
+            print(f"\n--- {label} / '{kw}' ---")
+            print(frag)
+            shown += 1
+            if shown >= limit:
                 break
         if not shown:
-            print("\n해당 라벨이 들어간 행을 못 찾았습니다. 페이지 앞부분:")
-            print(html_text[:1200])
-    else:
-        print("\n모든 항목을 읽었습니다.")
+            print(f"\n--- {label} --- 키워드 {keywords} 를 페이지에서 못 찾았습니다")
+        return shown
+
+    problems: list[tuple[str, list[str]]] = []
+    for key, labels, _kind in config.INSPECTION_PAGE_FIELDS:
+        if parsed["fields"].get(key) in (None, ""):
+            problems.append((f"항목:{key}", labels))
+    for u in (parsed.get("ev_hv_unknown") or []):
+        problems.append((f"고전원:{u[:20]}", [u.split("(")[0].strip()]))
+    for u in (parsed.get("detail_unknown") or []):
+        nm = u.split("(")[0].strip()
+        problems.append((f"세부상태:{nm}", [nm]))
+    if not parsed["repairs"]:
+        problems.append(("수리부위 랭크", ["1랭크", "2랭크", "A랭크", "B랭크"]))
+        problems.append(("수리부위 예시", ["휀더", "펜더", "도어", "필러", "멤버"]))
+
+    if args.find:
+        problems = [("직접 지정", [k.strip() for k in args.find.split(",") if k.strip()])]
+
+    if not problems:
+        print("\n모든 항목을 읽었습니다. 추가 진단이 필요 없습니다.")
+        return 0
+
+    # 페이지에 라벨 자체가 없는 것과, 라벨은 있는데 값을 못 읽은 것을 나눈다.
+    # 앞쪽은 파싱 문제가 아니므로 원문을 뒤질 필요가 없다.
+    page_text = soup.get_text(" ", strip=True).replace(" ", "")
+    absent, unparsed = [], []
+    for label, kws in problems:
+        if any(k.replace(" ", "") in page_text for k in kws):
+            unparsed.append((label, kws))
+        else:
+            absent.append(label)
+
+    if absent:
+        print(f"\n[페이지에 항목 자체가 없음 — 파싱 문제 아님] {len(absent)}건")
+        print("  " + ", ".join(a.replace("항목:", "") for a in absent))
+
+    if not unparsed:
+        print("\n라벨이 있는 항목은 모두 읽었습니다.")
+        return 0
+
+    print("\n" + "=" * 74)
+    print(f" 라벨은 있는데 값을 못 읽은 항목 {len(unparsed)}건 — 실제 마크업")
+    print(" (이 출력을 그대로 보내주세요)")
+    print("=" * 74)
+    for label, kws in unparsed[:12]:
+        _dump(label, kws)
+    if len(unparsed) > 12:
+        print(f"\n... 외 {len(unparsed)-12}건 생략")
     return 0
 
 
@@ -1275,6 +1329,8 @@ def main() -> int:
     p.add_argument("--inspect-page", dest="inspect_page", nargs="?",
                    const="data/raw_inspection_page.html",
                    help="저장된 성능기록부 HTML 을 분석 + 마크업 진단")
+    p.add_argument("--find", help="--inspect-page 전용: 이 키워드들의 마크업만 출력 "
+                                  "(쉼표 구분, 예: 랭크,휀더,필러)")
     p.add_argument("--inspect-file", dest="inspect_file", nargs="?",
                    const="data/raw_inspection.json",
                    help="저장된 성능점검 JSON 을 네트워크 없이 분석")

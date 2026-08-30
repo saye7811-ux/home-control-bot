@@ -280,6 +280,14 @@ INSPECTION_PAGE_FIELDS = [
 # 선택된 값을 나타내는 표시들. HTML 은 선택지를 양쪽 다 적어 두고
 # 굵기/색/클래스로만 실제 판정을 구분한다. 텍스트만 읽으면
 # "양호 불량" 을 통째로 값으로 읽어 멀쩡한 차가 전부 불량이 된다.
+# 엔카 페이지에 주석으로 명시된 확정 규칙:
+#   "default 항목 선택된 경우 class 'on' 추가
+#    default 항목 아닌 항목 선택된 경우 class 'active' 추가"
+#   <span class="txt_state on">양호</span>   <- 선택됨
+#   <span class="txt_state">불량</span>      <- 선택 안 됨
+STATE_SPAN_CLASS = "txt_state"
+STATE_SELECTED_CLASSES = ["on", "active"]
+
 SELECTED_MARKERS = {
     "tags": ["strong", "b", "em"],
     "class_on": ["on", "active", "select", "selected", "checked", "current",

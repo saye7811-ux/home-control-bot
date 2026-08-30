@@ -1,0 +1,65 @@
+<html><head><meta charset="utf-8"><title>성능·상태점검기록부</title></head><body>
+<!-- default 항목 선택된 경우 class 'on' 추가
+     default 항목 아닌 항목 선택된 경우 class 'active' 추가 -->
+
+<table class="tbl"><tbody>
+<tr><th>주행거리 계기상태</th>
+    <td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td></tr>
+<tr><th>차대번호 표기</th>
+    <td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td></tr>
+</tbody></table>
+
+<!-- 헤더 행 + 데이터 행 구조 (문제 3 재현) -->
+<table class="tbl"><tbody>
+<tr><th>사고이력</th><th>단순수리</th><th>용도변경</th></tr>
+<tr><td><span class="txt_state">없음</span><span class="txt_state active">있음</span></td>
+    <td><span class="txt_state on">없음</span><span class="txt_state">있음</span></td>
+    <td><span class="txt_state on">없음</span><span class="txt_state">있음</span></td></tr>
+</tbody></table>
+
+<table class="tbl"><tbody>
+<tr><th>주행거리</th><th>리콜대상</th><th>이행여부</th></tr>
+<tr><td>78,120 km</td>
+    <td><span class="txt_state">해당없음</span><span class="txt_state active">해당</span></td>
+    <td><span class="txt_state on">이행</span><span class="txt_state">미이행</span></td></tr>
+</tbody></table>
+
+<!-- 자동차 세부상태: 헤더 행 + 데이터 행 (문제 2 재현) -->
+<table class="tbl state_tbl"><tbody>
+<tr><th>원동기</th><th>변속기</th><th>동력전달</th><th>조향</th><th>제동</th></tr>
+<tr><td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td>
+    <td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td>
+    <td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td>
+    <td><span class="txt_state">양호</span><span class="txt_state active">불량</span></td>
+    <td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td></tr>
+<tr><th>누유</th><th>냉각수누수</th><th>전기</th><th>연료누출</th></tr>
+<tr><td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td>
+    <td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td>
+    <td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td>
+    <td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td></tr>
+</tbody></table>
+
+<!-- 고전원전기장치 -->
+<table class="tbl"><tbody>
+<tr><th>충전구 절연 상태</th><th>구동축전지 격리 상태</th><th>고전원전기배선 상태</th></tr>
+<tr><td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td>
+    <td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td>
+    <td><span class="txt_state on">양호</span><span class="txt_state">불량</span></td></tr>
+</tbody></table>
+
+<!-- 수리 부위: div/ul 구조 (문제 1 재현 — tr 이 아님) -->
+<div class="accident_area">
+  <div class="rank_row"><span class="tit">1랭크</span>
+    <ul class="part_list">
+      <li><span class="part_nm">프론트 휀더(우)</span><i class="ico_state x">교환</i></li>
+      <li><span class="part_nm">프론트 도어(우)</span><i class="ico_state x">교환</i></li>
+    </ul></div>
+  <div class="rank_row"><span class="tit">2랭크</span><ul class="part_list"><li>없음</li></ul></div>
+  <div class="rank_row"><span class="tit">A랭크</span><ul class="part_list"><li>없음</li></ul></div>
+  <div class="rank_row"><span class="tit">B랭크</span>
+    <ul class="part_list">
+      <li><span class="part_nm">필러 패널 A(우)</span><i class="ico_state w">판금</i></li>
+    </ul></div>
+  <div class="rank_row"><span class="tit">C랭크</span><ul class="part_list"><li>없음</li></ul></div>
+</div>
+</body></html>

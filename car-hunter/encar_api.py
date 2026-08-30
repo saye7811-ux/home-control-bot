@@ -1037,8 +1037,23 @@ def _pick_selected(cell, kind: str) -> tuple[str | None, str]:
     통째로 값이 되고, 거기에 '불량' 이 들어 있으니 멀쩡한 차가 전부
     불량으로 판정된다. 확실하지 않으면 '판정 불가' 를 돌려준다.
     """
+    import config as _cfg
     good, bad = STATE_PAIRS.get(kind, ("양호", "불량"))
     text = cell.get_text(" ", strip=True) if hasattr(cell, "get_text") else str(cell)
+
+    # txt_state span 이 있으면 문구가 무엇이든(해당/미이행 등) 그대로 읽는다
+    spans0 = [el for el in cell.find_all(True)
+              if _cfg.STATE_SPAN_CLASS in " ".join(el.get("class") or [])] \
+        if hasattr(cell, "find_all") else []
+    if spans0:
+        picked0 = [el for el in spans0
+                   if any(c in (el.get("class") or [])
+                          for c in _cfg.STATE_SELECTED_CLASSES)]
+        if len(picked0) == 1:
+            return picked0[0].get_text(strip=True), "txt_state on/active"
+        if not picked0:
+            return None, f"{_cfg.STATE_SPAN_CLASS} 에 on/active 가 없음 (판정 불가)"
+        return None, f"선택 표시가 {len(picked0)}개 (판정 불가)"
 
     has_good, has_bad = good in text, bad in text
     if has_good and not has_bad:
@@ -1048,7 +1063,21 @@ def _pick_selected(cell, kind: str) -> tuple[str | None, str]:
     if not has_good and not has_bad:
         return None, "선택지 문구가 없음"
 
-    # 둘 다 있으면 마크업으로 판별
+    # 1순위: 엔카가 주석으로 명시한 확정 규칙.
+    #   class="txt_state on"  또는 "txt_state active" 가 선택된 값.
+    spans = [el for el in cell.find_all(True)
+             if _cfg.STATE_SPAN_CLASS in " ".join(el.get("class") or [])]
+    if spans:
+        picked = [el for el in spans
+                  if any(c in (el.get("class") or [])
+                         for c in _cfg.STATE_SELECTED_CLASSES)]
+        if len(picked) == 1:
+            return picked[0].get_text(strip=True), "txt_state on/active"
+        if not picked:
+            return None, f"{_cfg.STATE_SPAN_CLASS} 에 on/active 가 없음 (판정 불가)"
+        return None, f"선택 표시가 {len(picked)}개 (판정 불가)"
+
+    # 2순위: 굵기/색/클래스 휴리스틱
     cands: list[tuple[str, int]] = []
     for word in (good, bad):
         for el in cell.find_all(string=lambda t, w=word: t and w in t):
@@ -1093,10 +1122,16 @@ def _status_from_element(el) -> str | None:
         return None
     # class="ico_x" / "mark_w" / "state-x" 같은 표기
     for node in [el] + el.find_all(True):
-        cls = " ".join(node.get("class") or []).lower()
+        classes = [c.lower() for c in (node.get("class") or [])]
+        cls = " ".join(classes)
         m = re.search(r"(?:ico|icon|mark|state|status|stat)[_\-]?([xwcaut])\b", cls)
         if m:
             return m.group(1).upper()
+        # class="ico_state x" 처럼 부호가 별도 토큰인 경우
+        if any(re.search(r"(ico|icon|mark|state|status|stat)", c) for c in classes):
+            for c in classes:
+                if c in ("x", "w", "c", "a", "u", "t"):
+                    return c.upper()
         for img in ([node] if node.name == "img" else []):
             src = ((img.get("src") or "") + " " + (img.get("alt") or "")).lower()
             m2 = re.search(r"[_/\-]([xwcaut])[._\-]", src)
@@ -1135,19 +1170,92 @@ def parse_inspection_page(html_text: str) -> dict:
 
     out["page_available"] = bool(soup.get_text(strip=True))
 
-    # 라벨 -> 값 칸(요소)을 찾는다
+    def _match_score(cell, labels) -> int:
+        """라벨 일치 품질. 0 이면 불일치.
+
+        '주행거리' 로 찾을 때 '주행거리 계기상태' 칸이 먼저 걸리면 안 된다.
+        정확히 같은 칸을 가장 높게 친다.
+        """
+        ct = cell.get_text(" ", strip=True).replace(" ", "")
+        best = 0
+        for lb in labels:
+            l = lb.replace(" ", "")
+            if not l or l not in ct:
+                continue
+            if ct == l:
+                best = max(best, 3)
+            elif ct.startswith(l) and len(ct) - len(l) <= 2:
+                best = max(best, 2)
+            else:
+                best = max(best, 1)
+        return best
+
+    def _match(cell, labels) -> bool:
+        return _match_score(cell, labels) > 0
+
+    def _has_state(cell) -> bool:
+        return bool([el for el in cell.find_all(True)
+                     if _cfg.STATE_SPAN_CLASS in " ".join(el.get("class") or [])])
+
+    # 라벨 -> 값 칸(요소)을 찾는다.
+    #
+    # 이 페이지는 두 가지 배치를 섞어 쓴다:
+    #   (가) 같은 행:   <th>라벨</th><td>값</td>
+    #   (나) 헤더 행 + 데이터 행:
+    #        <tr><th>사고이력</th><th>단순수리</th></tr>
+    #        <tr><td>값</td><td>값</td></tr>
+    # (나)를 (가)로 읽으면 옆 헤더('상태' 등)를 값으로 집는다.
     def _cell_for(labels: list[str]):
+        cands: list[tuple[int, int, Any]] = []   # (일치품질, 우선순위, 값칸)
+
+        # (가) 같은 행에서 라벨 다음 칸
         for tr in soup.find_all("tr"):
             cells = tr.find_all(["td", "th"])
+            if not cells:
+                continue
+            header_only = all(c.name == "th" for c in cells)
+            if header_only:
+                continue            # 헤더 행은 (나)에서 처리
             for i, c in enumerate(cells):
-                ct = c.get_text(" ", strip=True).replace(" ", "")
-                if not any(lb.replace(" ", "") in ct for lb in labels):
+                q = _match_score(c, labels)
+                if not q:
                     continue
-                # 라벨 칸 자체가 값까지 담고 있지 않은 경우 다음 칸
                 for nxt in cells[i + 1:]:
                     if nxt.get_text(strip=True):
-                        return nxt
-        return None
+                        cands.append((q, 3, nxt))
+                        break
+
+        # (나) 헤더 행에서 라벨을 찾고, 다음 데이터 행의 같은 열
+        for tr in soup.find_all("tr"):
+            heads = tr.find_all(["th", "td"])
+            if not heads or not all(h.name == "th" for h in heads):
+                continue
+            for idx, h in enumerate(heads):
+                q = _match_score(h, labels)
+                if not q:
+                    continue
+                nxt_row = tr.find_next_sibling("tr")
+                while nxt_row is not None:
+                    data = nxt_row.find_all(["td", "th"])
+                    if data and not all(d.name == "th" for d in data):
+                        if idx < len(data):
+                            cands.append((q, 2, data[idx]))
+                        break
+                    nxt_row = nxt_row.find_next_sibling("tr")
+
+        # (다) dl/dt/dd 또는 라벨 요소 바로 다음 형제
+        for tag in soup.find_all(["dt", "th", "span", "strong", "label"]):
+            q = _match_score(tag, labels)
+            if not q:
+                continue
+            sib = tag.find_next_sibling()
+            if sib is not None and sib.get_text(strip=True):
+                cands.append((q, 1, sib))
+
+        if not cands:
+            return None
+        cands.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        return cands[0][2]
 
     # --- 1) 라벨/값 ---
     for key, labels, kind in _cfg.INSPECTION_PAGE_FIELDS:
@@ -1166,59 +1274,108 @@ def parse_inspection_page(html_text: str) -> dict:
             out["fields"][key] = raw[:400]
             out["field_notes"][key] = "텍스트"
 
-    # --- 2) 수리 부위: 랭크 행 단위로 ---
-    for rank, labels in RANK_LABELS:
-        row = None
-        for tr in soup.find_all("tr"):
-            head = tr.get_text(" ", strip=True).replace(" ", "")
-            if any(lb.replace(" ", "") in head for lb in labels):
-                row = tr
+    # --- 2) 수리 부위: 랭크 '블록' 단위로 ---
+    # 랭크가 <tr> 이 아니라 <div>/<li> 구조일 수 있으므로 태그를 가리지 않는다.
+    all_rank_labels = [lb for _r, lbs in RANK_LABELS for lb in lbs]
+
+    def _rank_block(labels: list[str]):
+        """랭크 라벨과 '그 랭크의 내용' 을 함께 담은 가장 작은 요소.
+
+        라벨만 든 <span class="tit">1랭크</span> 를 그대로 쓰면 내용이 비어
+        전부 '없음' 이 된다. 내용이 나올 때까지 부모로 올라가되, 다른 랭크가
+        섞이기 시작하면 멈춘다.
+        """
+        matched = [el for el in soup.find_all(True)
+                   if el.name not in ("html", "body")
+                   and any(lb.replace(" ", "") in
+                           el.get_text(" ", strip=True).replace(" ", "")
+                           for lb in labels)]
+        if not matched:
+            return None
+        node = min(matched, key=lambda e: len(e.get_text(" ", strip=True)))
+
+        def _body_of(el) -> str:
+            t = el.get_text(" ", strip=True)
+            for lb in labels:
+                t = t.replace(lb, " ")
+            return re.sub(r"\s+", " ", t).strip(" -–—:")
+
+        def _other_rank_in(el) -> bool:
+            t = el.get_text(" ", strip=True).replace(" ", "")
+            mine = {lb.replace(" ", "") for lb in labels}
+            return any(lb.replace(" ", "") in t
+                       for lb in all_rank_labels
+                       if lb.replace(" ", "") not in mine)
+
+        cur = node
+        for _ in range(5):
+            if _body_of(cur) and not _other_rank_in(cur):
+                return cur
+            if cur.parent is None:
                 break
-        if row is None:
+            if _other_rank_in(cur.parent):
+                break
+            cur = cur.parent
+        return cur
+
+    for rank, labels in RANK_LABELS:
+        block = _rank_block(labels)
+        if block is None:
             continue
 
-        cells = row.find_all(["td", "th"])
-        value_cells = [c for c in cells
-                       if not any(lb.replace(" ", "") in c.get_text(strip=True).replace(" ", "")
-                                  for lb in labels)]
-        body = " ".join(c.get_text(" ", strip=True) for c in value_cells).strip()
+        # 라벨 자체를 뺀 나머지가 그 랭크의 내용
+        body = block.get_text(" ", strip=True)
+        for lb in labels:
+            body = body.replace(lb, " ")
+        body = re.sub(r"\s+", " ", body).strip(" -–—:")
         if not body or body in ("없음", "-", "해당없음"):
             out["rank_sections"][rank] = "없음"
             continue
         out["rank_sections"][rank] = body[:120]
 
+        def _is_container(node) -> bool:
+            """하위에 또 부위명이 있으면 이 요소는 묶음이지 부위가 아니다.
+
+            이걸 안 걸러내면 '프론트 휀더(우) 교환 프론트 도어(우) 교환' 이
+            통째로 하나의 부위로 잡힌다.
+            """
+            for d in node.find_all(True):
+                t = d.get_text(" ", strip=True)
+                if t and len(t) <= 30 and resolve_part(t)[0]:
+                    return True
+            return False
+
         found_here = 0
-        for cell in value_cells:
-            # 부위명 후보 요소들
-            for node in cell.find_all(True) or [cell]:
-                name = node.get_text(" ", strip=True)
-                if not name or len(name) > 30:
-                    continue
-                canon, _r = resolve_part(name)
-                if not canon:
-                    continue
-                # 상태 부호는 같은 요소 또는 바로 다음 형제에서
-                st = _status_from_element(node)
-                sib = node.find_next_sibling()
-                if not st and sib is not None:
-                    st = _status_from_element(sib)
-                if not st:
-                    st = _status_from_element(cell)
-                pos = ""
-                m = re.search(r"[(（]\s*([좌우전후])\s*[)）]", name)
-                if m:
-                    pos = m.group(1)
-                key = (canon, st or "?", pos)
-                if any((r["part"], r["status"], r["position"]) == key
-                       for r in out["repairs"]):
-                    continue
-                out["repairs"].append({
-                    "part": canon, "raw": name, "position": pos,
-                    "status": st or "?", "rank": rank,
-                    "status_known": bool(st),
-                })
-                found_here += 1
-        if not found_here and body not in ("없음",):
+        for node in block.find_all(True):
+            name = node.get_text(" ", strip=True)
+            if not name or len(name) > 30:
+                continue
+            if any(lb.replace(" ", "") in name.replace(" ", "") for lb in labels):
+                continue
+            canon, _r = resolve_part(name)
+            if not canon:
+                continue
+            if _is_container(node):
+                continue
+            st = _status_from_element(node)
+            sib = node.find_next_sibling()
+            if not st and sib is not None:
+                st = _status_from_element(sib)
+            if not st and node.parent is not None:
+                st = _status_from_element(node.parent)
+            pos = ""
+            m = re.search(r"[(（]\s*([좌우전후])\s*[)）]", name)
+            if m:
+                pos = m.group(1)
+            key = (canon, st or "?", pos)
+            if any((r["part"], r["status"], r["position"]) == key for r in out["repairs"]):
+                continue
+            out["repairs"].append({
+                "part": canon, "raw": name, "position": pos,
+                "status": st or "?", "rank": rank, "status_known": bool(st),
+            })
+            found_here += 1
+        if not found_here:
             out["unmatched_parts"].append(f"[{rank}] {body[:60]}")
 
     # 랭크 행을 아예 못 찾았으면 마크업이 예상과 다르다는 뜻
