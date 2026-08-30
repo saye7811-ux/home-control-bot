@@ -45,6 +45,8 @@ SCORED_FIELDS = [
     "value_verdict", "value_verdict_note", "discount_priced_in",
     "discount_extra", "discount_extra_manwon", "discount_unexplained_manwon",
     "seller_option_claims", "seller_text_len", "insp_vin",
+    "vin_option_state", "vin_option_manwon", "vin_option_source",
+    "vin_option_verified_at",
     "trim_key", "trim_offset_manwon", "battery_maker", "battery_risk",
     "battery_note", "view_count", "subscribe_count", "view_per_day",
     "listing_signal", "listing_signal_note",
@@ -501,11 +503,19 @@ def print_top(rows, n, sort_label: str = "") -> None:
                    "unknown": "확인 필요"}.get(risk, "")
             print(f"       배터리  {r.get('battery_maker') or '미확인'} [{tag}]"
                   + (f" — {r['battery_note']}" if r.get("battery_note") else ""))
-        if r.get("seller_option_claims"):
-            print(f"       딜러 주장 옵션: {r['seller_option_claims']} "
-                  f"(설명글 근거 · 미검증 — 실차/헤이딜러에서 확인 필요)")
-        if r.get("insp_vin") and len(str(r["insp_vin"])) == 17:
-            print(f"       차대번호: {r['insp_vin']}  (VIN 디코더에 직접 입력 가능)")
+        st = r.get("vin_option_state") or "unverified"
+        if st == "verified":
+            amt = to_float(r.get("vin_option_manwon")) or 0
+            print(f"       [VIN 검증됨] 에어서스/후륜조향 확인 "
+                  f"(+{amt:,.0f}만원, 출처 {r.get('vin_option_source') or '-'})")
+        elif st == "verified_none":
+            print("       [VIN 검증됨] 에어서스·후륜조향 없음 (감점 없음)")
+        elif r.get("seller_option_claims"):
+            print(f"       딜러 주장 옵션: {r['seller_option_claims']} (미검증)")
+        if st == "unverified" and len(str(r.get("insp_vin") or "")) == 17:
+            print(f"       >> VIN 확인 필요: {r['insp_vin']}")
+        elif st == "unverified":
+            print("       >> VIN 없음 — 딜러에게 차대번호 요청")
         if r.get("listing_signal"):
             print(f"       매물반응 {r['listing_signal']}")
             print(f"          {r.get('listing_signal_note','')}")

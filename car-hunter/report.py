@@ -307,6 +307,24 @@ def _option_block(r: dict) -> str:
     """
     import scoring
     out = []
+    st = r.get("vin_option_state") or "unverified"
+    if st == "verified":
+        amt = to_float(r.get("vin_option_manwon")) or 0
+        src = r.get("vin_option_source") or ""
+        at = r.get("vin_option_verified_at") or ""
+        air = "에어서스" if True else ""
+        out.append(f'<div class="vinok">VIN 검증됨 &#10004; '
+                   f'에어서스/후륜조향 확인<span> +{amt:,.0f}만원</span></div>'
+                   f'<div class="muted small">{_e(src)} {_e(at)} 확인 · '
+                   f'제조사 생산 데이터라 딜러 주장과 달리 확정입니다.</div>')
+        return "".join(out) + _vin_line(r, scoring, verified=True)
+    if st == "verified_none":
+        out.append('<div class="vinok none">VIN 검증됨 &#10004; '
+                   '에어서스·후륜조향 없음</div>'
+                   '<div class="muted small">감점하지 않았습니다 — 기준 시세선이 '
+                   '옵션 있는 차와 없는 차가 섞인 표본이라 이미 반영돼 있습니다.</div>')
+        return "".join(out) + _vin_line(r, scoring, verified=True)
+
     claims = str(r.get("seller_option_claims") or "")
     if claims:
         out.append(f'<div class="claim">{_e(claims)} <span>딜러 주장 · 미검증</span></div>')
@@ -318,8 +336,20 @@ def _option_block(r: dict) -> str:
         elif hint.get("note"):
             out.append(f'<div class="muted small">{_e(hint["note"])}</div>')
 
+    return "".join(out) + _vin_line(r, scoring, verified=False)
+
+
+def _vin_line(r: dict, scoring, verified: bool) -> str:
+    """VIN 표시 + 디코더 열기 버튼. 아직 확인 안 했으면 그렇게 알린다."""
+    out = []
     vin = str(r.get("insp_vin") or "").strip()
     dec = scoring.vin_decoder_for(r)
+    if verified:
+        if len(vin) == 17:
+            out.append(f'<div class="vinrow"><code class="vin">{_e(vin)}</code></div>')
+        return "".join(out)
+    if len(vin) == 17 and dec:
+        out.append('<div class="vintodo">VIN 확인 필요</div>')
     if len(vin) == 17 and dec:
         out.append(
             f'<div class="vinrow"><code class="vin">{_e(vin)}</code>'
@@ -631,6 +661,11 @@ tr.row-photo td{background:rgba(124,45,18,.06)}
         cursor:pointer}
 .vinbtn:hover,.vinbtn.done{background:var(--good);color:#fff}
 .vinmissing{margin-top:7px;font-size:12px;font-weight:700;color:var(--muted)}
+.vinok{margin-top:6px;padding:4px 9px;border-radius:6px;font-size:12px;
+       font-weight:800;background:var(--good);color:#fff;display:inline-block}
+.vinok span{font-weight:700;opacity:.9}
+.vinok.none{background:var(--border);color:var(--muted)}
+.vintodo{margin-top:7px;font-size:12px;font-weight:800;color:#b45309}
 .sig-warn{margin-top:6px;font-size:12px;font-weight:800;color:#b45309}
 .sig-good{margin-top:6px;font-size:12px;font-weight:800;color:var(--good)}
 .trimtbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}

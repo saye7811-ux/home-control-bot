@@ -898,6 +898,39 @@ OPTION_BUNDLES = {
     },
 }
 
+# VIN 으로 확정한 옵션의 금액 (만원). 적정가에 더한다.
+#
+# 이 금액은 '딜러가 그렇게 적었다' 가 아니라 'VIN 으로 확인했다' 일 때만
+# 들어간다 (data/vin_verified.json). 제조사 생산 데이터라 신뢰할 수 있다.
+#
+# 확인했는데 '없음' 이면 0원이다. 감점하지 않는다 — 기준 시세선이 옵션
+# 있는 차와 없는 차가 섞인 표본으로 그려져 있어서, 없는 쪽을 또 깎으면
+# 이미 반영된 것을 두 번 빼는 셈이 된다.
+# 확인하지 않은 매물도 0원이다. 모르는 것은 반영하지 않는다.
+VIN_OPTION_PRICING = {
+    "BMW": {
+        # 다이나믹 핸들링 패키지로만 팔려서 2VR·2VH 가 세트다.
+        "air_only_manwon": 0.0,
+        "rear_only_manwon": 0.0,
+        "both_manwon": 250.0,
+        "bundled": True,
+        "note": "다이나믹 핸들링 패키지 (2VR 에어서스 + 2VH 후륜조향)",
+    },
+    "벤츠": {
+        # 에어매틱과 리어 액슬 스티어링이 별개 옵션이라 따로 값이 붙는다.
+        "air_only_manwon": 200.0,
+        "rear_only_manwon": 80.0,
+        "both_manwon": 280.0,
+        "bundled": False,
+        "note": "에어매틱 / 리어 액슬 스티어링 (별개 옵션)",
+    },
+}
+
+# VIN 확인 결과를 적어 두는 파일. 형식:
+#   { "354주4191": {"air_suspension": true, "rear_steering": true,
+#                   "verified_at": "2026-08-30", "source": "bimmer.work"} }
+VIN_VERIFIED_FILE = "vin_verified.json"
+
 # VIN 으로 출고 옵션을 확인하는 디코더. 브랜드별로 다르다.
 # POST 방식이라 URL 파라미터로 못 넘긴다 — 리포트는 VIN 을 복사해 주고
 # 디코더를 새 탭으로 열어 준다. 붙여넣기만 하면 된다.

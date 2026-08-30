@@ -185,6 +185,90 @@ def option_hint(row: dict) -> dict:
     return out
 
 
+_VIN_VERIFIED_CACHE: dict | None = None
+
+
+def load_vin_verified(force: bool = False) -> dict:
+    """VIN 으로 확인한 옵션 결과를 읽는다 (data/vin_verified.json).
+
+    사람이 손으로 적는 파일이다. 자동 조회가 막혀 있어서
+    (VIN 디코더가 봇을 차단) 사장님이 브라우저로 확인한 결과를
+    여기에 옮겨 적으면 점수에 들어간다.
+    """
+    global _VIN_VERIFIED_CACHE
+    if _VIN_VERIFIED_CACHE is not None and not force:
+        return _VIN_VERIFIED_CACHE
+    import json
+    import os
+    from common import DATA_DIR
+    path = os.path.join(DATA_DIR, getattr(config, "VIN_VERIFIED_FILE",
+                                          "vin_verified.json"))
+    out: dict = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                raw = json.load(f)
+            for k, v in (raw or {}).items():
+                if k.startswith("_") or not isinstance(v, dict):
+                    continue      # _설명 같은 주석 항목은 건너뛴다
+                out[str(k).strip()] = v
+        except (OSError, ValueError):
+            out = {}
+    _VIN_VERIFIED_CACHE = out
+    return out
+
+
+def vin_option_value(row: dict) -> dict:
+    """VIN 으로 확인된 옵션의 금액과 설명.
+
+    돌려주는 것:
+      state   "verified" | "verified_none" | "unverified"
+      manwon  적정가에 더할 금액
+      label   내역에 찍을 문구
+      warn    이상한 조합일 때의 경고 (BMW 는 세트라 하나만 나오면 이상하다)
+    """
+    out = {"state": "unverified", "manwon": 0.0, "label": "", "warn": "",
+           "air": None, "rear": None, "source": "", "verified_at": ""}
+    rec = load_vin_verified().get(str(row.get("plate_no") or "").strip())
+    if not rec:
+        return out
+
+    air = bool(rec.get("air_suspension"))
+    rear = bool(rec.get("rear_steering"))
+    out.update({"air": air, "rear": rear,
+                "source": str(rec.get("source") or ""),
+                "verified_at": str(rec.get("verified_at") or "")})
+
+    P = getattr(config, "VIN_OPTION_PRICING", {}).get(brand_of(row)) or {}
+    if not P:
+        out["state"] = "verified_none" if not (air or rear) else "verified"
+        return out
+
+    if air and rear:
+        amt = P.get("both_manwon", 0.0)
+        what = "에어서스 + 후륜조향"
+    elif air:
+        amt = P.get("air_only_manwon", 0.0)
+        what = "에어서스"
+    elif rear:
+        amt = P.get("rear_only_manwon", 0.0)
+        what = "후륜조향"
+    else:
+        out["state"] = "verified_none"
+        out["label"] = "VIN 확인 — 에어서스·후륜조향 없음"
+        return out
+
+    # BMW 는 패키지로만 팔린다. 하나만 나왔다면 조회를 다시 봐야 한다.
+    if P.get("bundled") and not (air and rear):
+        out["warn"] = (f"{P.get('note','')}는 세트로만 판매됩니다. "
+                       f"하나만 확인됐으니 조회 결과를 다시 보세요 "
+                       f"(금액은 반영하지 않았습니다)")
+    out["state"] = "verified"
+    out["manwon"] = float(amt)
+    out["label"] = f"VIN 확인 옵션 ({what})"
+    return out
+
+
 def vin_decoder_for(row: dict) -> dict:
     d = getattr(config, "VIN_DECODERS", {}).get(brand_of(row))
     return dict(d) if d else {}
@@ -652,6 +736,25 @@ def compute_fair_price(row: dict, market: MarketModel) -> dict:
         out["unknowns"].append(f"고전원전기장치 판정 불가: {', '.join(ev_unknown)[:120]}")
     elif not ev_bad and not to_int(row.get("page_ev_hv_checked")):
         out["unknowns"].append("고전원전기장치 점검 결과 없음 (전기차 핵심 항목)")
+
+    # 6-2) VIN 으로 확정한 옵션
+    #
+    # 딜러 설명글과 달리 이건 제조사 생산 데이터라 믿을 수 있다.
+    # 없는 것으로 확인돼도 감점하지 않는다 — 기준 시세선이 옵션 있는 차와
+    # 없는 차가 섞인 표본이라, 없는 쪽을 또 깎으면 두 번 빼는 셈이 된다.
+    vo = vin_option_value(row)
+    row["vin_option_state"] = vo["state"]
+    row["vin_option_manwon"] = round(vo["manwon"], 0) if vo["manwon"] else ""
+    row["vin_option_source"] = vo["source"]
+    row["vin_option_verified_at"] = vo["verified_at"]
+    if vo["manwon"]:
+        out["breakdown"].append((vo["label"], round(vo["manwon"], 0)))
+        fair += vo["manwon"]
+    elif vo["state"] == "verified_none":
+        out["unknowns"].append("VIN 으로 확인했고 에어서스·후륜조향이 없습니다 "
+                               "(감점하지 않았습니다 — 기준 시세선에 이미 섞여 있음)")
+    if vo["warn"]:
+        out["unknowns"].append(vo["warn"])
 
     # 7) 자동차 세부상태 불량
     det_unknown = [x for x in str(row.get("page_detail_unknown") or "").split(", ") if x]
