@@ -50,6 +50,10 @@ def _e(v) -> str:
 # ---------------------------------------------------------------------------
 # SVG 산점도
 # ---------------------------------------------------------------------------
+def _truthy_cell(v) -> bool:
+    return str(v).strip().lower() in ("true", "1", "y", "yes")
+
+
 def _scatter_svg(rows: list[dict], market) -> str:
     W, H = 620, 340
     ML, MR, MT, MB = 62, 18, 18, 46
@@ -113,14 +117,72 @@ def _scatter_svg(rows: list[dict], market) -> str:
                     f'x2="{sx(bx):.1f}" y2="{sy(by):.1f}" '
                     f'stroke="var(--line)" stroke-width="2" stroke-dasharray="6 4"/>')
 
-    # 점: 저평가(파랑) ~ 고평가(빨강)
+    # 점 그리기.
+    #
+    # 색은 σ 로 나눈다 — 리포트의 다른 곳과 같은 자를 써야 눈이 헷갈리지
+    # 않는다. 순위에서 빠진 매물(리스·구매 후보 아닌 트림)은 시세 표본으로만
+    # 쓰이므로 속 빈 점으로 흐리게 그려 구분한다.
+    # 상위 5위는 크게 그리고 차량번호를 옆에 적어 바로 찾을 수 있게 한다.
+    import scoring
+    labels = []
     for km, pr, vpct, r in pts:
-        c = "var(--good)" if vpct >= 5 else "var(--bad)" if vpct <= -5 else "var(--mid)"
-        title = (f"{r.get('plate_no') or r.get('vehicle_id')} · "
-                 f"{fmt_manwon(pr)} · {fmt_km(km)} · 시세대비 {vpct:+.1f}%")
-        out.append(f'<circle cx="{sx(km):.1f}" cy="{sy(pr):.1f}" r="5.5" fill="{c}" '
-                   f'fill-opacity="0.78" stroke="var(--dot-stroke)" stroke-width="1">'
-                   f'<title>{_e(title)}</title></circle>')
+        sg = to_float(r.get("value_gap_sigma"))
+        gap = to_float(r.get("value_gap_manwon"))
+        pct = to_float(r.get("value_gap_pct"))
+        plate = r.get("plate_no") or r.get("vehicle_id") or "?"
+        url = r.get("listing_url") or ""
+        rank = to_int(r.get("rank"))
+        in_rank = (not _truthy_cell(r.get("sample_only"))
+                   and not _truthy_cell(r.get("excluded"))
+                   and scoring.is_buy_candidate(r))
+        top = bool(in_rank and rank and rank <= 5)
+
+        if not in_rank:
+            fill, op, stroke, rad = "var(--mid)", "0.18", "var(--mid)", 4.0
+        else:
+            if sg is None:
+                fill = "var(--mid)"
+            elif sg >= 0.5:
+                fill = "var(--good)"
+            elif sg <= -0.5:
+                fill = "var(--bad)"
+            else:
+                fill = "var(--mid)"
+            op, stroke = "0.85", "var(--dot-stroke)"
+            rad = 8.0 if top else 5.5
+
+        bits = [f"{plate}", f"{r.get('trim_key') or r.get('trim') or ''}",
+                f"{fmt_manwon(pr)}", f"{fmt_km(km)}"]
+        if gap is not None and pct is not None:
+            bits.append(f"적정가 대비 {gap:+,.0f}만원 ({pct:+.1f}%)")
+        if sg is not None:
+            bits.append(f"{sg:+.2f}σ")
+        if not in_rank:
+            bits.append("순위 제외 · 시세 표본")
+        title = "  |  ".join(b for b in bits if b)
+
+        dot = (f'<circle cx="{sx(km):.1f}" cy="{sy(pr):.1f}" r="{rad}" fill="{fill}" '
+               f'fill-opacity="{op}" stroke="{stroke}" '
+               f'stroke-width="{3 if top else 1}" class="dot{" dot-top" if top else ""}">'
+               f'<title>{_e(title)}</title></circle>')
+        if url:
+            dot = (f'<a href="{_e(url)}" target="_blank" rel="noopener" '
+                   f'class="dotlink">{dot}</a>')
+        out.append(dot)
+
+        if top:
+            # 라벨은 점 위에 겹치지 않게 마지막에 몰아서 그린다
+            ty = sy(pr) - rad - 5
+            anchor = "middle"
+            tx = sx(km)
+            if tx < ML + 34:
+                tx, anchor = ML + 2, "start"
+            elif tx > ML + pw - 34:
+                tx, anchor = ML + pw - 2, "end"
+            labels.append(
+                f'<text x="{tx:.1f}" y="{max(ty, MT + 10):.1f}" '
+                f'text-anchor="{anchor}" class="dotlabel">{_e(plate)}</text>')
+    out.extend(labels)
 
     out.append(f'<text x="{ML+pw/2:.0f}" y="{H-6}" text-anchor="middle" '
                f'class="axis">주행거리 (km)</text>')
@@ -197,7 +259,18 @@ def _market_card(market, rows: list[dict]) -> str:
       {extra}
       {warn}
       {_scatter_svg(rows, market)}
-      <p class="muted">점선 = 중앙 연식({_e(market.label)}) 기준 시세선. 파랑=저평가, 빨강=고평가.</p>
+      <div class="legend">
+        <span><i class="lg good"></i>저평가 (+0.5&sigma; 이상)</span>
+        <span><i class="lg mid"></i>시세선 근처 (&plusmn;0.5&sigma; 이내 — 싸지도 비싸지도 않음)</span>
+        <span><i class="lg bad"></i>고평가 (&minus;0.5&sigma; 이하)</span>
+        <span><i class="lg out"></i>순위 제외 — 리스·렌트이거나 구매 후보가 아닌 트림
+          (시세 표본으로만 사용)</span>
+        <span><i class="lg top"></i>순위 1~5위 (차량번호 표시)</span>
+      </div>
+      <p class="muted">점을 클릭하면 엔카 매물이 새 탭으로 열립니다.
+        마우스를 올리면 차량번호·트림·가격·주행거리·차액·&sigma;가 나옵니다.<br>
+        점선 = 중앙 연식·중앙 신차가 기준 시세선입니다. 실제 평가는 매물마다
+        자기 신차가로 계산되므로, 점선에서 떨어져 있어도 색이 다를 수 있습니다.</p>
     </div>"""
 
 
@@ -666,6 +739,20 @@ tr.row-photo td{background:rgba(124,45,18,.06)}
 .vinok span{font-weight:700;opacity:.9}
 .vinok.none{background:var(--border);color:var(--muted)}
 .vintodo{margin-top:7px;font-size:12px;font-weight:800;color:#b45309}
+.legend{display:flex;flex-wrap:wrap;gap:10px 16px;margin:8px 0 4px;
+        font-size:12px;color:var(--muted)}
+.legend span{display:flex;align-items:center;gap:5px}
+.lg{width:11px;height:11px;border-radius:50%;display:inline-block;flex:0 0 auto}
+.lg.good{background:var(--good)}
+.lg.mid{background:var(--mid)}
+.lg.bad{background:var(--bad)}
+.lg.out{background:var(--mid);opacity:.25;border:1px solid var(--mid)}
+.lg.top{background:transparent;border:3px solid var(--dot-stroke);
+        width:13px;height:13px}
+.dotlink{cursor:pointer}
+.dot{transition:r .1s}
+.dotlink:hover .dot{stroke:var(--fg);stroke-width:2.5}
+.dotlabel{font-size:10px;font-weight:800;fill:var(--fg)}
 .sig-warn{margin-top:6px;font-size:12px;font-weight:800;color:#b45309}
 .sig-good{margin-top:6px;font-size:12px;font-weight:800;color:var(--good)}
 .trimtbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
