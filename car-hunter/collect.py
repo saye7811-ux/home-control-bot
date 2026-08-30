@@ -64,6 +64,7 @@ LISTING_FIELDS = [
     "page_first_registration", "page_inspection_valid", "page_inspector_note",
     "page_js_suspect", "page_detail_bad", "page_detail_unknown",
     "page_ev_hv_bad", "page_ev_hv_unknown", "page_ev_hv_checked", "page_parse_note",
+    "page_is_image",
     "origin_price_manwon", "warranty", "view_count", "subscribe_count",
     "inspection_summary", "photo_url", "listing_url",
     "detail_fetched", "collected_at",
@@ -967,7 +968,63 @@ def collect_target(client, target: dict, limit: int, with_detail: bool,
     if missing_plate:
         warn(f"차량번호 미확보 {len(missing_plate)}건 — 상세 응답 키 확인 필요 "
              f"(예: {missing_plate[:3]})")
+
+    rows = dedupe_by_plate(rows)
     return rows
+
+
+def dedupe_by_plate(rows: list[dict]) -> list[dict]:
+    """같은 차가 매물번호만 다르게 두 번 올라온 것을 하나로 합친다.
+
+    중복 제거는 vehicle_id 로 하는데, 딜러가 같은 차를 다시 등록하면
+    매물번호가 새로 붙는다. 실제로 33건 중 9쌍이 차량번호·가격·주행거리가
+    전부 같은 같은 차였다 (33건 = 실제 24대).
+
+    이걸 두면 두 군데가 틀어진다:
+      - 시세 회귀선이 중복된 차 쪽으로 끌려간다 (그 차만 표본에 2표)
+      - 상위 10대에 같은 차가 두 번 올라와 헤이딜러 조회를 한 칸 낭비한다
+
+    차량번호를 못 받은 매물은 합치지 않는다 (같은 차인지 알 수 없으므로).
+    남길 쪽은 정보가 더 많은 것 — 성능기록부 > 보험이력 > 최근 등록 순.
+    """
+    from common import to_int
+
+    def _rank(r: dict) -> tuple:
+        return (
+            1 if r.get("page_available") else 0,
+            1 if str(r.get("record_available", "")).lower() in ("true", "1", "y") else 0,
+            1 if r.get("detail_fetched") else 0,
+            to_int(r.get("vehicle_id")) or 0,      # 매물번호가 큰 쪽 = 최근 등록
+        )
+
+    best: dict[str, dict] = {}
+    order: list = []
+    dropped: list[str] = []
+    for r in rows:
+        plate = str(r.get("plate_no") or "").strip()
+        if not plate:
+            order.append(r)                        # 차량번호 미확보 — 그대로 둔다
+            continue
+        cur = best.get(plate)
+        if cur is None:
+            best[plate] = r
+            order.append(plate)
+        elif _rank(r) > _rank(cur):
+            dropped.append(f"{plate}:{cur.get('vehicle_id')}")
+            best[plate] = r
+        else:
+            dropped.append(f"{plate}:{r.get('vehicle_id')}")
+
+    if dropped:
+        log(f"  같은 차량번호 중복 {len(dropped)}건 제거 "
+            f"(매물번호만 다른 재등록) — 남은 {len(order)}대")
+        log(f"    제거된 매물번호: {', '.join(dropped[:12])}"
+            + (" ..." if len(dropped) > 12 else ""))
+
+    out = []
+    for x in order:
+        out.append(best[x] if isinstance(x, str) else x)
+    return out
 
 
 def cmd_collect(args) -> int:

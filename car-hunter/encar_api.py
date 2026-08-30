@@ -372,20 +372,40 @@ class EncarClient:
         return self._code_map
 
     def inspection_page(self, vid: str) -> str | None:
-        """성능기록부 HTML 페이지를 가져온다. JSON 이 아니므로 별도 처리."""
+        """성능기록부 HTML 페이지를 가져온다. JSON 이 아니므로 별도 처리.
+
+        JSON API 와 달리 이쪽은 46KB 짜리 HTML 이라 느리다. 실제로 20초
+        타임아웃에서 33건 중 9건이 한 번에 떨어져 나갔다. 이 페이지는 수리
+        부위의 주 소스라 한 번 실패로 버리면 그 매물은 흠결을 못 본 채로
+        점수가 매겨진다. 그래서 JSON 경로와 같은 재시도를 주고 타임아웃도
+        따로 넉넉히 잡는다.
+        """
         import config as _cfg
         url = _cfg.INSPECTION_PAGE_URL.format(vid=vid)
-        self._throttle()
-        try:
-            r = self.s.get(url, timeout=self.timeout,
-                           headers={"Accept": "text/html,application/xhtml+xml"})
-        except requests.RequestException as e:
-            if _is_unreachable(e):
-                raise EncarUnreachable(
-                    f"inspection_page:{vid}",
-                    "엔카 서버에 연결하지 못했습니다 (프록시/방화벽/DNS).\n"
-                    f"  원인: {e.__class__.__name__}: {str(e)[:200]}") from e
-            warn(f"성능기록부 페이지 조회 실패({vid}): {e}")
+        timeout = int(self.cfg.get("page_timeout_sec", max(self.timeout * 3, 60)))
+
+        r = None
+        for attempt in range(self.retry + 1):
+            self._throttle()
+            try:
+                r = self.s.get(url, timeout=timeout,
+                               headers={"Accept": "text/html,application/xhtml+xml"})
+                break
+            except requests.RequestException as e:
+                if _is_unreachable(e):
+                    raise EncarUnreachable(
+                        f"inspection_page:{vid}",
+                        "엔카 서버에 연결하지 못했습니다 (프록시/방화벽/DNS).\n"
+                        f"  원인: {e.__class__.__name__}: {str(e)[:200]}") from e
+                if attempt < self.retry:
+                    delay = self.backoff[min(attempt, len(self.backoff) - 1)]
+                    warn(f"성능기록부 페이지({vid}): {e.__class__.__name__}, "
+                         f"{delay}s 후 재시도 ({attempt + 1}/{self.retry})")
+                    time.sleep(delay)
+                    continue
+                warn(f"성능기록부 페이지 조회 실패({vid}): {e}")
+                return None
+        if r is None:
             return None
 
         if r.status_code in (401, 403, 405, 429):
@@ -2339,10 +2359,18 @@ def parse_inspection_page(html_text: str) -> dict:
     # script 데이터도 없고 이미지 한 장뿐이라 읽을 것이 없다. 파서 고장이
     # 아니므로 그렇게 말해야 하고, 무엇보다 '읽었더니 흠결이 없더라' 로
     # 오해되면 안 된다 (README: 없는 값을 0 으로 채우지 않는다).
+    M = getattr(_cfg, "INSPECTION_PHOTO_MARKERS", {})
     page_txt = soup.get_text(" ", strip=True)
     img_alts = " ".join((im.get("alt") or "") for im in soup.find_all("img"))
-    if not soup.find_all("table") and _cfg.LANK_LIST_CLASS not in html_text and (
-            "사진으로 등록한" in page_txt or "등록 사진" in img_alts):
+    img_srcs = " ".join((im.get("src") or "") for im in soup.find_all("img")).lower()
+    photo_hint = (
+        any(w in page_txt for w in M.get("text", []))
+        or any(w in img_alts for w in M.get("img_alt", []))
+        or any(w in img_srcs for w in M.get("img_src", []))
+    )
+    # 랭크 목록 틀도, script 손상표도 없으면 읽어 낼 구조가 없다는 뜻이다.
+    # 판매자가 입력한 요약표 한 개만 있는 변형도 여기에 들어온다.
+    if photo_hint and _cfg.LANK_LIST_CLASS not in html_text and not out["repairs"]             and not script_data.get("part_table"):
         out["page_is_image"] = True
         out["parse_note"] = ("성능기록부가 사진(이미지)으로만 등록된 매물입니다 — "
                              "페이지에서 읽어 낼 수 있는 항목이 없습니다")
@@ -2536,6 +2564,9 @@ def normalize_inspection_page(parsed: dict) -> dict:
         "page_ev_hv_checked": sum(1 for v in parsed.get("ev_hv", {}).values()
                                   if v.get("state")),
         "page_parse_note": parsed.get("parse_note", ""),
+        # 성능기록부가 사진뿐이라 읽을 것이 없는 매물. '무사고' 와 구분해야
+        # 하므로 점수·리포트에서 따로 표시한다.
+        "page_is_image": bool(parsed.get("page_is_image")),
         "page_js_suspect": parsed.get("js_render_suspect", False),
     }
 
