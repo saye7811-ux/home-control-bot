@@ -1,0 +1,4 @@
+requests>=2.31
+numpy>=1.24
+# 아래는 선택 사항 — 모의 스크린샷 생성기(samples/make_mock_screenshots.py)에만 필요
+# pillow>=10.0

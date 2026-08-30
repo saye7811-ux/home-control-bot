@@ -1,0 +1,21 @@
+{
+  "_설명": [
+    "hidden/ 의 헤이딜러 스크린샷을 읽고 records 배열을 채우세요.",
+    "plate_no 는 필수(매칭 키). 값을 못 읽으면 vehicle_id 로 대체 가능.",
+    "airsus: 출고옵션에 에어서스/에어매틱이 있으면 true, 명시적으로 없으면 false,",
+    "        화면에서 판단 불가면 null.",
+    "insurance_repair_won: 보험 수리이력 총액(원). 이력 없으면 0, 불명이면 null."
+  ],
+  "records": [
+    {
+      "plate_no": "123가4567",
+      "vehicle_id": "",
+      "source_image": "hidden/IMG_0001.png",
+      "battery_maker": "삼성SDI",
+      "airsus": true,
+      "insurance_repair_won": 0,
+      "insurance_summary": "내차 피해 0건 / 상대차 피해 1건 (32만원)",
+      "notes": "출고옵션 목록에 에어서스펜션 포함 확인"
+    }
+  ]
+}

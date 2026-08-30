@@ -1,0 +1,1987 @@
+{
+ "ix_xdrive50": [
+  {
+   "search": {
+    "Id": "39100001",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202204,
+    "FormYear": "2022",
+    "Mileage": 57759,
+    "Price": 6557,
+    "OfficeCityState": "경남",
+    "Photo": "/carpicture/ce39100001/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100001,
+    "vehicleNo": "100가1000",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2022,
+     "yearMonth": 202204
+    },
+    "spec": {
+     "mileage": 57759,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 6557
+    },
+    "options": {
+     "standard": [
+      "차선유지보조",
+      "어라운드뷰",
+      "헤드업 디스플레이",
+      "통풍시트",
+      "하만카돈",
+      "파노라마 선루프",
+      "열선 스티어링"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100001/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 1,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 1,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "교환 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39100002",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202411,
+    "FormYear": "2024",
+    "Mileage": 44021,
+    "Price": 8574,
+    "OfficeCityState": "인천",
+    "Photo": "/carpicture/ce39100002/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100002,
+    "vehicleNo": "101나1137",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2024,
+     "yearMonth": 202411
+    },
+    "spec": {
+     "mileage": 44021,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 8574
+    },
+    "options": {
+     "standard": [
+      "어라운드뷰",
+      "통풍시트",
+      "파노라마 선루프",
+      "열선 스티어링",
+      "하만카돈",
+      "헤드업 디스플레이",
+      "차선유지보조"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100002/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 1,
+    "historyText": "렌트(대여용) 이력 있음 / 무사고"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "판금 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": null
+  },
+  {
+   "search": {
+    "Id": "39100003",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202212,
+    "FormYear": "2022",
+    "Mileage": 70225,
+    "Price": 6548,
+    "OfficeCityState": "서울",
+    "Photo": "/carpicture/ce39100003/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100003,
+    "vehicleNo": "102다1274",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2022,
+     "yearMonth": 202212
+    },
+    "spec": {
+     "mileage": 70225,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 6548
+    },
+    "options": {
+     "standard": [
+      "통풍시트",
+      "하만카돈",
+      "열선 스티어링",
+      "차선유지보조",
+      "헤드업 디스플레이",
+      "파노라마 선루프",
+      "어라운드뷰"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100003/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 1,
+    "otherAccidentCnt": 1,
+    "myAccidentCost": 3800000,
+    "ownerChangeCnt": 2,
+    "historyText": "렌트(대여용) 이력 있음"
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "교환 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39100004",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202203,
+    "FormYear": "2022",
+    "Mileage": 82414,
+    "Price": 6085,
+    "OfficeCityState": "경남",
+    "Photo": "/carpicture/ce39100004/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100004,
+    "vehicleNo": "103라1411",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2022,
+     "yearMonth": 202203
+    },
+    "spec": {
+     "mileage": 82414,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 6085
+    },
+    "options": {
+     "standard": [
+      "헤드업 디스플레이",
+      "통풍시트",
+      "열선 스티어링",
+      "차선유지보조",
+      "파노라마 선루프",
+      "하만카돈",
+      "어라운드뷰"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100004/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 1,
+    "historyText": "침수 전손 이력 있음 / 렌트(대여용) 이력 있음"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "없음",
+    "comment": "침수 전손 확인"
+   },
+   "diagnosis": null
+  },
+  {
+   "search": {
+    "Id": "39100005",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202406,
+    "FormYear": "2024",
+    "Mileage": 42659,
+    "Price": 8366,
+    "OfficeCityState": "경남",
+    "Photo": "/carpicture/ce39100005/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100005,
+    "vehicleNo": "104마1548",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2024,
+     "yearMonth": 202406
+    },
+    "spec": {
+     "mileage": 42659,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 8366
+    },
+    "options": {
+     "standard": [
+      "하만카돈",
+      "열선 스티어링",
+      "통풍시트",
+      "어라운드뷰",
+      "헤드업 디스플레이",
+      "차선유지보조",
+      "파노라마 선루프"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100005/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 1,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 320000,
+    "ownerChangeCnt": 3,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "교환 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": null
+  },
+  {
+   "search": {
+    "Id": "39100006",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202205,
+    "FormYear": "2022",
+    "Mileage": 80479,
+    "Price": 6514,
+    "OfficeCityState": "충남",
+    "Photo": "/carpicture/ce39100006/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100006,
+    "vehicleNo": "105바1685",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2022,
+     "yearMonth": 202205
+    },
+    "spec": {
+     "mileage": 80479,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 6514
+    },
+    "options": {
+     "standard": [
+      "차선유지보조",
+      "헤드업 디스플레이",
+      "통풍시트",
+      "하만카돈",
+      "어라운드뷰",
+      "열선 스티어링",
+      "파노라마 선루프",
+      "인테그럴 액티브 스티어링",
+      "에어서스펜션"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100006/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 1,
+    "historyText": "무사고"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "교환 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": null
+  },
+  {
+   "search": {
+    "Id": "39100007",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202209,
+    "FormYear": "2022",
+    "Mileage": 78187,
+    "Price": 6853,
+    "OfficeCityState": "인천",
+    "Photo": "/carpicture/ce39100007/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100007,
+    "vehicleNo": "106사1822",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2022,
+     "yearMonth": 202209
+    },
+    "spec": {
+     "mileage": 78187,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 6853
+    },
+    "options": {
+     "standard": [
+      "에어서스펜션",
+      "파노라마 선루프",
+      "통풍시트",
+      "인테그럴 액티브 스티어링",
+      "헤드업 디스플레이",
+      "하만카돈",
+      "열선 스티어링",
+      "차선유지보조",
+      "어라운드뷰"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100007/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 1,
+    "otherAccidentCnt": 1,
+    "myAccidentCost": 3800000,
+    "ownerChangeCnt": 2,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "판금 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": null
+  },
+  {
+   "search": {
+    "Id": "39100008",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202301,
+    "FormYear": "2023",
+    "Mileage": 69518,
+    "Price": 6679,
+    "OfficeCityState": "대구",
+    "Photo": "/carpicture/ce39100008/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100008,
+    "vehicleNo": "107아1959",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2023,
+     "yearMonth": 202301
+    },
+    "spec": {
+     "mileage": 69518,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 6679
+    },
+    "options": {
+     "standard": [
+      "어라운드뷰",
+      "하만카돈",
+      "차선유지보조",
+      "헤드업 디스플레이",
+      "파노라마 선루프",
+      "열선 스티어링",
+      "통풍시트"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100008/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 2,
+    "historyText": "무사고"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "판금 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": null
+  },
+  {
+   "search": {
+    "Id": "39100009",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202206,
+    "FormYear": "2022",
+    "Mileage": 58713,
+    "Price": 6884,
+    "OfficeCityState": "경기",
+    "Photo": "/carpicture/ce39100009/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100009,
+    "vehicleNo": "108자2096",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2022,
+     "yearMonth": 202206
+    },
+    "spec": {
+     "mileage": 58713,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 6884
+    },
+    "options": {
+     "standard": [
+      "에어서스펜션",
+      "인테그럴 액티브 스티어링",
+      "차선유지보조",
+      "열선 스티어링",
+      "헤드업 디스플레이",
+      "통풍시트",
+      "파노라마 선루프",
+      "하만카돈",
+      "어라운드뷰"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100009/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 1,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 3800000,
+    "ownerChangeCnt": 1,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "판금 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39100010",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202203,
+    "FormYear": "2022",
+    "Mileage": 78678,
+    "Price": 6048,
+    "OfficeCityState": "서울",
+    "Photo": "/carpicture/ce39100010/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100010,
+    "vehicleNo": "109하2233",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2022,
+     "yearMonth": 202203
+    },
+    "spec": {
+     "mileage": 78678,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 6048
+    },
+    "options": {
+     "standard": [
+      "차선유지보조",
+      "헤드업 디스플레이",
+      "어라운드뷰",
+      "열선 스티어링",
+      "하만카돈",
+      "통풍시트",
+      "파노라마 선루프"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100010/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 2,
+    "historyText": "무사고"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "판금 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39100011",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202303,
+    "FormYear": "2023",
+    "Mileage": 56428,
+    "Price": 7860,
+    "OfficeCityState": "경남",
+    "Photo": "/carpicture/ce39100011/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100011,
+    "vehicleNo": "110가2370",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2023,
+     "yearMonth": 202303
+    },
+    "spec": {
+     "mileage": 56428,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 7860
+    },
+    "options": {
+     "standard": [
+      "하만카돈",
+      "인테그럴 액티브 스티어링",
+      "차선유지보조",
+      "헤드업 디스플레이",
+      "파노라마 선루프",
+      "통풍시트",
+      "어라운드뷰",
+      "에어서스펜션",
+      "열선 스티어링"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100011/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 1,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 1450000,
+    "ownerChangeCnt": 1,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "없음",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39100012",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202312,
+    "FormYear": "2023",
+    "Mileage": 48086,
+    "Price": 8249,
+    "OfficeCityState": "대구",
+    "Photo": "/carpicture/ce39100012/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100012,
+    "vehicleNo": "111나2507",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2023,
+     "yearMonth": 202312
+    },
+    "spec": {
+     "mileage": 48086,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 8249
+    },
+    "options": {
+     "standard": [
+      "어라운드뷰",
+      "열선 스티어링",
+      "차선유지보조",
+      "하만카돈",
+      "헤드업 디스플레이",
+      "파노라마 선루프",
+      "통풍시트"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100012/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 1,
+    "historyText": "무사고"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "없음",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39100013",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202312,
+    "FormYear": "2023",
+    "Mileage": 42259,
+    "Price": 7776,
+    "OfficeCityState": "경남",
+    "Photo": "/carpicture/ce39100013/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100013,
+    "vehicleNo": "112다2644",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2023,
+     "yearMonth": 202312
+    },
+    "spec": {
+     "mileage": 42259,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 7776
+    },
+    "options": {
+     "standard": [
+      "인테그럴 액티브 스티어링",
+      "어라운드뷰",
+      "헤드업 디스플레이",
+      "하만카돈",
+      "파노라마 선루프",
+      "통풍시트",
+      "차선유지보조",
+      "열선 스티어링",
+      "에어서스펜션"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100013/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 1,
+    "historyText": "무사고"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "없음",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39100014",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202409,
+    "FormYear": "2024",
+    "Mileage": 36262,
+    "Price": 9101,
+    "OfficeCityState": "경남",
+    "Photo": "/carpicture/ce39100014/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100014,
+    "vehicleNo": "113라2781",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2024,
+     "yearMonth": 202409
+    },
+    "spec": {
+     "mileage": 36262,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 9101
+    },
+    "options": {
+     "standard": [
+      "통풍시트",
+      "에어서스펜션",
+      "열선 스티어링",
+      "차선유지보조",
+      "어라운드뷰",
+      "파노라마 선루프",
+      "하만카돈",
+      "헤드업 디스플레이",
+      "인테그럴 액티브 스티어링"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100014/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 1,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 7200000,
+    "ownerChangeCnt": 1,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "판금 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39100015",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202402,
+    "FormYear": "2024",
+    "Mileage": 41447,
+    "Price": 8065,
+    "OfficeCityState": "인천",
+    "Photo": "/carpicture/ce39100015/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100015,
+    "vehicleNo": "114마2918",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2024,
+     "yearMonth": 202402
+    },
+    "spec": {
+     "mileage": 41447,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 8065
+    },
+    "options": {
+     "standard": [
+      "어라운드뷰",
+      "차선유지보조",
+      "하만카돈",
+      "통풍시트",
+      "열선 스티어링",
+      "파노라마 선루프",
+      "헤드업 디스플레이"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100015/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 1,
+    "historyText": "무사고"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "없음",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39100016",
+    "Manufacturer": "비엠더블유",
+    "ModelGroup": "iX",
+    "Model": "iX",
+    "Badge": "xDrive50",
+    "BadgeDetail": "xDrive50 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202201,
+    "FormYear": "2022",
+    "Mileage": 91968,
+    "Price": 5573,
+    "OfficeCityState": "대구",
+    "Photo": "/carpicture/ce39100016/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39100016,
+    "vehicleNo": "115바3055",
+    "category": {
+     "manufacturerName": "비엠더블유",
+     "modelName": "iX",
+     "gradeName": "xDrive50",
+     "formYear": 2022,
+     "yearMonth": 202201
+    },
+    "spec": {
+     "mileage": 91968,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 5573
+    },
+    "options": {
+     "standard": [
+      "파노라마 선루프",
+      "열선 스티어링",
+      "하만카돈",
+      "통풍시트",
+      "차선유지보조",
+      "어라운드뷰",
+      "헤드업 디스플레이"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39100016/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 2,
+    "otherAccidentCnt": 1,
+    "myAccidentCost": 3800000,
+    "ownerChangeCnt": 2,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "판금 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": null
+  }
+ ],
+ "eqe_suv_350": [
+  {
+   "search": {
+    "Id": "39200001",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202402,
+    "FormYear": "2024",
+    "Mileage": 31367,
+    "Price": 8479,
+    "OfficeCityState": "서울",
+    "Photo": "/carpicture/ce39200001/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200001,
+    "vehicleNo": "150가7850",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2024,
+     "yearMonth": 202402
+    },
+    "spec": {
+     "mileage": 31367,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 8479
+    },
+    "options": {
+     "standard": [
+      "AIRMATIC",
+      "에어매틱 서스펜션",
+      "MBUX 하이퍼스크린",
+      "360도 카메라",
+      "파노라마 선루프",
+      "통풍시트",
+      "디스트로닉",
+      "부메스터 사운드"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200001/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 1,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 1,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "교환 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": null
+  },
+  {
+   "search": {
+    "Id": "39200002",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202302,
+    "FormYear": "2023",
+    "Mileage": 59557,
+    "Price": 7176,
+    "OfficeCityState": "경남",
+    "Photo": "/carpicture/ce39200002/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200002,
+    "vehicleNo": "151나7987",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2023,
+     "yearMonth": 202302
+    },
+    "spec": {
+     "mileage": 59557,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 7176
+    },
+    "options": {
+     "standard": [
+      "360도 카메라",
+      "에어매틱 서스펜션",
+      "부메스터 사운드",
+      "파노라마 선루프",
+      "AIRMATIC",
+      "통풍시트",
+      "디스트로닉",
+      "MBUX 하이퍼스크린"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200002/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 1,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 2,
+    "historyText": "렌트(대여용) 이력 있음"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "없음",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39200003",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202402,
+    "FormYear": "2024",
+    "Mileage": 34801,
+    "Price": 8979,
+    "OfficeCityState": "경기",
+    "Photo": "/carpicture/ce39200003/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200003,
+    "vehicleNo": "152다8124",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2024,
+     "yearMonth": 202402
+    },
+    "spec": {
+     "mileage": 34801,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 8979
+    },
+    "options": {
+     "standard": [
+      "AIRMATIC",
+      "360도 카메라",
+      "에어매틱 서스펜션",
+      "MBUX 하이퍼스크린",
+      "부메스터 사운드",
+      "디스트로닉",
+      "통풍시트",
+      "파노라마 선루프"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200003/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 1,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 320000,
+    "ownerChangeCnt": 3,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "판금 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39200004",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202304,
+    "FormYear": "2023",
+    "Mileage": 60527,
+    "Price": 7697,
+    "OfficeCityState": "부산",
+    "Photo": "/carpicture/ce39200004/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200004,
+    "vehicleNo": "153라8261",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2023,
+     "yearMonth": 202304
+    },
+    "spec": {
+     "mileage": 60527,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 7697
+    },
+    "options": {
+     "standard": [
+      "360도 카메라",
+      "에어매틱 서스펜션",
+      "디스트로닉",
+      "파노라마 선루프",
+      "AIRMATIC",
+      "MBUX 하이퍼스크린",
+      "통풍시트",
+      "부메스터 사운드"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200004/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 2,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 3800000,
+    "ownerChangeCnt": 3,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "없음",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39200005",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202404,
+    "FormYear": "2024",
+    "Mileage": 24922,
+    "Price": 8712,
+    "OfficeCityState": "대구",
+    "Photo": "/carpicture/ce39200005/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200005,
+    "vehicleNo": "154마8398",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2024,
+     "yearMonth": 202404
+    },
+    "spec": {
+     "mileage": 24922,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 8712
+    },
+    "options": {
+     "standard": [
+      "부메스터 사운드",
+      "디스트로닉",
+      "MBUX 하이퍼스크린",
+      "360도 카메라",
+      "파노라마 선루프",
+      "통풍시트"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200005/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 1,
+    "otherAccidentCnt": 1,
+    "myAccidentCost": 7200000,
+    "ownerChangeCnt": 2,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "교환 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39200006",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202406,
+    "FormYear": "2024",
+    "Mileage": 21931,
+    "Price": 9442,
+    "OfficeCityState": "경남",
+    "Photo": "/carpicture/ce39200006/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200006,
+    "vehicleNo": "155바8535",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2024,
+     "yearMonth": 202406
+    },
+    "spec": {
+     "mileage": 21931,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 9442
+    },
+    "options": {
+     "standard": [
+      "MBUX 하이퍼스크린",
+      "360도 카메라",
+      "통풍시트",
+      "부메스터 사운드",
+      "디스트로닉",
+      "파노라마 선루프"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200006/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 1,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 1,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "판금 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": null
+  },
+  {
+   "search": {
+    "Id": "39200007",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202401,
+    "FormYear": "2024",
+    "Mileage": 35721,
+    "Price": 8424,
+    "OfficeCityState": "부산",
+    "Photo": "/carpicture/ce39200007/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200007,
+    "vehicleNo": "156사8672",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2024,
+     "yearMonth": 202401
+    },
+    "spec": {
+     "mileage": 35721,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 8424
+    },
+    "options": {
+     "standard": [
+      "360도 카메라",
+      "부메스터 사운드",
+      "MBUX 하이퍼스크린",
+      "통풍시트",
+      "파노라마 선루프",
+      "디스트로닉"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200007/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 2,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 1450000,
+    "ownerChangeCnt": 1,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "판금 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39200008",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202408,
+    "FormYear": "2024",
+    "Mileage": 30483,
+    "Price": 9258,
+    "OfficeCityState": "충남",
+    "Photo": "/carpicture/ce39200008/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200008,
+    "vehicleNo": "157아8809",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2024,
+     "yearMonth": 202408
+    },
+    "spec": {
+     "mileage": 30483,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 9258
+    },
+    "options": {
+     "standard": [
+      "MBUX 하이퍼스크린",
+      "에어매틱 서스펜션",
+      "360도 카메라",
+      "부메스터 사운드",
+      "통풍시트",
+      "파노라마 선루프",
+      "AIRMATIC",
+      "디스트로닉"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200008/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 1,
+    "otherAccidentCnt": 1,
+    "myAccidentCost": 320000,
+    "ownerChangeCnt": 2,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "없음",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39200009",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202310,
+    "FormYear": "2023",
+    "Mileage": 73324,
+    "Price": 7726,
+    "OfficeCityState": "서울",
+    "Photo": "/carpicture/ce39200009/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200009,
+    "vehicleNo": "158자8946",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2023,
+     "yearMonth": 202310
+    },
+    "spec": {
+     "mileage": 73324,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 7726
+    },
+    "options": {
+     "standard": [
+      "통풍시트",
+      "360도 카메라",
+      "디스트로닉",
+      "부메스터 사운드",
+      "에어매틱 서스펜션",
+      "AIRMATIC",
+      "파노라마 선루프",
+      "MBUX 하이퍼스크린"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200009/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 3,
+    "historyText": "렌트(대여용) 이력 있음 / 무사고"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "판금 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39200010",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202403,
+    "FormYear": "2024",
+    "Mileage": 51493,
+    "Price": 8362,
+    "OfficeCityState": "경남",
+    "Photo": "/carpicture/ce39200010/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200010,
+    "vehicleNo": "159하9083",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2024,
+     "yearMonth": 202403
+    },
+    "spec": {
+     "mileage": 51493,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 8362
+    },
+    "options": {
+     "standard": [
+      "통풍시트",
+      "디스트로닉",
+      "360도 카메라",
+      "부메스터 사운드",
+      "파노라마 선루프",
+      "MBUX 하이퍼스크린"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200010/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 1,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 2,
+    "historyText": "렌트(대여용) 이력 있음"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "없음",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39200011",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202303,
+    "FormYear": "2023",
+    "Mileage": 75549,
+    "Price": 7091,
+    "OfficeCityState": "경기",
+    "Photo": "/carpicture/ce39200011/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200011,
+    "vehicleNo": "160가9220",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2023,
+     "yearMonth": 202303
+    },
+    "spec": {
+     "mileage": 75549,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 7091
+    },
+    "options": {
+     "standard": [
+      "디스트로닉",
+      "MBUX 하이퍼스크린",
+      "파노라마 선루프",
+      "통풍시트",
+      "부메스터 사운드",
+      "360도 카메라",
+      "에어매틱 서스펜션",
+      "AIRMATIC"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200011/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 3,
+    "historyText": "무사고"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "교환 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": {
+    "diagnosisYn": "Y",
+    "grade": "A"
+   }
+  },
+  {
+   "search": {
+    "Id": "39200012",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202411,
+    "FormYear": "2024",
+    "Mileage": 3111,
+    "Price": 9424,
+    "OfficeCityState": "인천",
+    "Photo": "/carpicture/ce39200012/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200012,
+    "vehicleNo": "161나9357",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2024,
+     "yearMonth": 202411
+    },
+    "spec": {
+     "mileage": 3111,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 9424
+    },
+    "options": {
+     "standard": [
+      "파노라마 선루프",
+      "부메스터 사운드",
+      "디스트로닉",
+      "MBUX 하이퍼스크린",
+      "통풍시트",
+      "360도 카메라"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200012/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 0,
+    "otherAccidentCnt": 0,
+    "myAccidentCost": 0,
+    "ownerChangeCnt": 2,
+    "historyText": "무사고"
+   },
+   "inspection": {
+    "accidentHistory": "없음",
+    "simpleRepair": "교환 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": null
+  },
+  {
+   "search": {
+    "Id": "39200013",
+    "Manufacturer": "벤츠",
+    "ModelGroup": "EQE",
+    "Model": "EQE SUV",
+    "Badge": "350 4MATIC",
+    "BadgeDetail": "350 4MATIC 기본형",
+    "FuelType": "전기",
+    "Transmission": "오토",
+    "Year": 202412,
+    "FormYear": "2024",
+    "Mileage": 43873,
+    "Price": 9299,
+    "OfficeCityState": "경기",
+    "Photo": "/carpicture/ce39200013/001.jpg",
+    "SellType": "일반"
+   },
+   "detail": {
+    "vehicleId": 39200013,
+    "vehicleNo": "162다9494",
+    "category": {
+     "manufacturerName": "벤츠",
+     "modelName": "EQE SUV",
+     "gradeName": "350 4MATIC",
+     "formYear": 2024,
+     "yearMonth": 202412
+    },
+    "spec": {
+     "mileage": 43873,
+     "fuelName": "전기"
+    },
+    "advertisement": {
+     "price": 9299
+    },
+    "options": {
+     "standard": [
+      "파노라마 선루프",
+      "MBUX 하이퍼스크린",
+      "부메스터 사운드",
+      "360도 카메라",
+      "디스트로닉",
+      "통풍시트"
+     ]
+    },
+    "photos": [
+     {
+      "path": "/carpicture/ce39200013/001.jpg"
+     }
+    ]
+   },
+   "record": {
+    "myAccidentCnt": 2,
+    "otherAccidentCnt": 1,
+    "myAccidentCost": 320000,
+    "ownerChangeCnt": 3,
+    "historyText": ""
+   },
+   "inspection": {
+    "accidentHistory": "사고 이력 있음",
+    "simpleRepair": "판금 1개소",
+    "comment": "고전압 배터리 외관 이상 없음"
+   },
+   "diagnosis": null
+  }
+ ]
+}
