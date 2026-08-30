@@ -1463,7 +1463,11 @@ def extract_page_script_data(html_text: str) -> dict:
 
     found: dict = {"point": [], "point_from": "", "catalogs": {},
                    "records": [], "record_from": "", "record_raw": "",
-                   "flags": {}, "defs": [], "script_count": 0}
+                   "flags": {}, "defs": [], "script_count": 0,
+                   "part_table": {}, "part_table_from": "",
+                   "damage": None, "damage_from": "", "damage_raw": "",
+                   "init_data_null": False}
+    all_defs: list[dict] = []
 
     for si, sc in enumerate(soup.find_all("script")):
         if sc.get("src"):
@@ -1475,6 +1479,8 @@ def extract_page_script_data(html_text: str) -> dict:
         for d in js_definitions(body):
             name, val = d["name"], d["value"]
             short = re.sub(r"\s+", " ", d["raw"])
+            all_defs.append({"name": name, "value": val, "script": si,
+                             "raw": short})
             found["defs"].append({
                 "name": name, "script": si, "offset": d["start"],
                 "kind": type(val).__name__, "size": len(val),
@@ -1505,6 +1511,21 @@ def extract_page_script_data(html_text: str) -> dict:
                 found["records"].extend(
                     r for r in recs if r not in found["records"])
 
+        # init({data: ...}) 처럼 함수 인자로 바로 넘어가는 객체도 읽는다.
+        for m in re.finditer(r"\.init\s*\(\s*(?=\{)", body):
+            try:
+                val, _e = js_parse_value(body, m.end())
+            except Exception:
+                continue
+            if not isinstance(val, dict) or "data" not in val:
+                continue
+            if val["data"] is None:
+                found["init_data_null"] = True
+                continue
+            all_defs.append({"name": "init(data)", "value": val["data"],
+                             "script": si,
+                             "raw": re.sub(r"\s+", " ", body[m.start():_e])[:2000]})
+
         # 대입문이 아니라 함수 인자로 바로 넘겨지는 경우:
         #   drawLank([{lank:'1', value:1, stat:0}, ...])
         if not found["records"]:
@@ -1521,7 +1542,116 @@ def extract_page_script_data(html_text: str) -> dict:
                     found["record_raw"] = re.sub(
                         r"\s+", " ", body[m.start():_end])[:2000]
                     break
+
+    _find_part_table(found, all_defs)
+    _find_damage_map(found, all_defs)
+
+    # performanceCheck.init({ data : null }) — 페이지가 '수리 부위 없음' 이라고
+    # 명시한 경우다. 리터럴이 아니라서 위 정의 수집에는 안 잡히지만,
+    # '못 찾음' 과 '없다고 적혀 있음' 은 전혀 다른 결론이므로 구분해야 한다.
+    if found["damage"] is None and found["init_data_null"] and found["part_table"]:
+        found["damage"] = {}
+        found["damage_from"] = "init 의 data 가 null (수리 부위 없음)"
     return found
+
+    # dataGroup(부위 표)을 '이 차의 수리 내역'으로 오인하지 않는다.
+    # 이 배열은 모든 부위를 코드·이름·랭크와 함께 늘어놓은 표일 뿐이고,
+    # 그대로 읽으면 무사고 차가 전부 수리된 것처럼 보인다.
+    tbl_from = found.get("part_table_from") or ""
+    if tbl_from and (found.get("record_from") or "").startswith(tbl_from):
+        found["records"] = []
+        found["record_from"] = ""
+        found["record_raw"] = ""
+    return found
+
+
+def _find_part_table(found: dict, all_defs: list[dict]) -> None:
+    """모든 부위를 담은 표(dataGroup)를 찾는다 — 코드/영문이름 -> 부위명·랭크.
+
+    이것은 이 차의 수리 내역이 아니라 '부위 사전' 이다. 실제 수리 내역
+    (`data`)이 영문 키로만 오기 때문에 이름과 랭크를 붙이는 데 쓴다.
+    """
+    for d in all_defs:
+        val = d["value"]
+        if not isinstance(val, list) or len(val) < 5:
+            continue
+        rows = [v for v in val if isinstance(v, dict)]
+        if len(rows) < len(val) * 0.8:
+            continue
+        ok = [r for r in rows
+              if _pick(r, ("lank",)) is not None
+              and _pick(r, ("value",)) is not None
+              and (_pick(r, ("code",)) or _pick(r, ("name",)))]
+        if len(ok) < len(rows) * 0.8:
+            continue
+        if not any(_has_korean(_pick(r, ("value",))) for r in ok):
+            continue
+        table: dict[str, dict] = {}
+        for r in ok:
+            entry = {
+                "name": str(_pick(r, ("value",)) or "").strip(),
+                "legacy": str(_pick(r, ("value_old", "valueold")) or "").strip(),
+                "lank": str(_pick(r, ("lank",)) or "").strip(),
+            }
+            if not entry["name"]:
+                continue
+            for k in (_pick(r, ("code",)), _pick(r, ("name",))):
+                if k not in (None, ""):
+                    table.setdefault(str(k).strip(), entry)
+        if table:
+            found["part_table"] = table
+            found["part_table_from"] = d["name"]
+            return
+
+
+def _find_damage_map(found: dict, all_defs: list[dict]) -> None:
+    """이 차의 실제 수리 내역을 찾는다 — 부위키 -> 손상 코드 배열.
+
+        performanceCheck.init({ data: {"frontFenderRight":["CHANGE"], ...} })
+
+    값이 null 이면 그 부위는 수리 없음이다. 전부 null 인 경우도 정상이며
+    (진짜 무사고), 그때도 '못 찾음' 이 아니라 '0건' 으로 확정해야 한다.
+    """
+    import config as _cfg
+    codes = {c.upper() for c in _cfg.DAMAGE_CODE_TEXT}
+    table = found.get("part_table") or {}
+
+    def _valid_codes(v) -> bool:
+        return isinstance(v, list) and all(
+            isinstance(x, str) and x.strip().upper() in codes for x in v)
+
+    for d in all_defs:
+        val = d["value"]
+
+        # 현행 표기: {부위키: ["CHANGE"] | null}
+        if isinstance(val, dict) and val:
+            if not all(v is None or _valid_codes(v) for v in val.values()):
+                continue
+            hit = sum(1 for k in val if str(k).strip() in table)
+            if table:
+                if hit < max(3, len(val) * 0.5):
+                    continue          # 부위 표와 안 맞으면 다른 객체다
+            elif not any(v for v in val.values()):
+                continue              # 부위 표도 없고 손상도 없으면 근거 부족
+            found["damage"] = {str(k).strip(): list(v or []) for k, v in val.items()}
+            found["damage_from"] = f"{d['name']} (script #{d['script'] + 1})"
+            found["damage_raw"] = d["raw"][:2000]
+            return
+
+        # 구버전 표기: ["hood_1", "roofPanel_2", ...]
+        if isinstance(val, list) and val and all(
+                isinstance(x, str) and re.fullmatch(r"[A-Za-z0-9]+_[1-5]", x.strip())
+                for x in val):
+            conv: dict[str, list] = {}
+            for x in val:
+                k, _, num = x.strip().partition("_")
+                conv[k] = list(_cfg.DAMAGE_LEGACY_CODES.get(int(num), []))
+            if table and not any(k in table for k in conv):
+                continue
+            found["damage"] = conv
+            found["damage_from"] = f"{d['name']} (script #{d['script'] + 1}, 구버전 표기)"
+            found["damage_raw"] = d["raw"][:2000]
+            return
 
 
 def _catalog_lookup(catalogs: dict, lank: str, index: int):
@@ -1561,6 +1691,7 @@ def parse_inspection_page(html_text: str) -> dict:
         "detail_bad": [], "detail_unknown": [], "ev_hv": {}, "ev_hv_bad": [],
         "ev_hv_unknown": [], "fields": {}, "field_notes": {},
         "rank_sections": {}, "parse_note": "", "observed_state_classes": {},
+        "page_is_image": False,
         "js_render_suspect": False, "js_hints": "", "js_scripts": [],
         "script_summary": {},
     }
@@ -1643,16 +1774,32 @@ def parse_inspection_page(html_text: str) -> dict:
                 while nxt_row is not None:
                     data = nxt_row.find_all(["td", "th"])
                     if data and not all(d.name == "th" for d in data):
-                        if idx < len(data):
+                        # 데이터 행의 <th> 는 그 행의 라벨이지 값이 아니다.
+                        # 예: <tr><th>사고이력</th><th>상태</th>...</tr> 의
+                        # 다음 행이 <th>주행거리 계기상태</th><td>양호</td> 라면
+                        # 0열은 '주행거리 계기상태' 라는 라벨이므로 값이 될 수 없다.
+                        if idx < len(data) and data[idx].name == "td":
                             cands.append((q, 2, data[idx]))
                         break
                     nxt_row = nxt_row.find_next_sibling("tr")
 
         # (다) dl/dt/dd 또는 라벨 요소 바로 다음 형제
+        #
+        # 열 제목(<tr> 이 전부 <th>)은 여기서 제외한다. 열 제목의 다음
+        # 형제는 옆 열 제목이지 값이 아니다. 실제로 '사고이력' 이
+        #   <tr><th>사고이력</th><th>상태</th>...</tr>
+        # 처럼 표의 첫 열 제목으로도 나오는데, 이걸 집으면 정확히 일치한다는
+        # 이유로 진짜 행(<th scope="row">사고이력 자세히보기</th><td>있음</td>)
+        # 을 제치고 '상태' 를 값으로 삼는다.
         for tag in soup.find_all(["dt", "th", "span", "strong", "label"]):
             q = _match_score(tag, labels)
             if not q:
                 continue
+            row = tag.find_parent("tr")
+            if row is not None:
+                sibs = row.find_all(["td", "th"], recursive=False) or                     row.find_all(["td", "th"])
+                if sibs and all(c.name == "th" for c in sibs):
+                    continue
             sib = tag.find_next_sibling()
             if sib is not None and sib.get_text(strip=True):
                 cands.append((q, 1, sib))
@@ -1673,8 +1820,20 @@ def parse_inspection_page(html_text: str) -> dict:
             out["fields"][key] = val
             out["field_notes"][key] = why if val else f"{why} (원문: {raw[:40]})"
         elif kind == "number":
-            # 주행거리는 선택지(많음/보통/적음) 옆의 txt_detail 에 실제 값이 있다
+            # 주행거리는 선택지(많음/보통/적음) 옆의 txt_detail 에 실제 값이 있다.
+            # 그 txt_detail 은 같은 칸이 아니라 '다음 칸' 에 있는 경우가 많다:
+            #   <th>주행거리</th>
+            #   <td><span class="txt_state">많음</span>...</td>
+            #   <td><span class="txt_detail">60,608km</span></td>
             detail_el = cell.find(class_=re.compile(r"txt_detail"))
+            if detail_el is None:
+                row = cell.find_parent("tr")
+                if row is not None:
+                    for sib in row.find_all(["td", "th"]):
+                        el = sib.find(class_=re.compile(r"txt_detail"))
+                        if el is not None and to_int(el.get_text(" ", strip=True)):
+                            detail_el = el
+                            break
             if detail_el is not None:
                 out["fields"][key] = to_int(detail_el.get_text(" ", strip=True))
                 out["field_notes"][key] = f"txt_detail: {detail_el.get_text(strip=True)[:24]}"
@@ -1684,6 +1843,22 @@ def parse_inspection_page(html_text: str) -> dict:
         else:
             out["fields"][key] = raw[:400]
             out["field_notes"][key] = "텍스트"
+
+    # 리콜 이행 여부는 별도 라벨 없이 '리콜대상' 행의 세 번째 칸에 온다.
+    #   <th>리콜대상</th><td>해당없음 <b>해당</b></td><td>이행</td>
+    # 라벨이 없으니 위 반복문에서는 안 잡힌다. 감점 항목은 아니지만
+    # (README: 리콜은 표시만 한다) 표시는 정확해야 한다.
+    if not out["fields"].get("recall_done"):
+        rc = _cell_for(["리콜대상", "리콜 대상"])
+        row = rc.find_parent("tr") if rc is not None else None
+        if row is not None:
+            for sib in row.find_all(["td", "th"]):
+                el = sib.find(class_=re.compile(r"txt_detail"))
+                txt = el.get_text(" ", strip=True) if el is not None else ""
+                if txt:
+                    out["fields"]["recall_done"] = txt[:40]
+                    out["field_notes"]["recall_done"] = "리콜대상 행의 txt_detail"
+                    break
 
     # --- 2) 수리 부위: 랭크 '블록' 단위로 ---
     # 랭크가 <tr> 이 아니라 <div>/<li> 구조일 수 있으므로 태그를 가리지 않는다.
@@ -1703,7 +1878,8 @@ def parse_inspection_page(html_text: str) -> dict:
         rng = (_cfg.INSPECTION_RANKS.get(rk) or {}).get("range") or (0.0, 0.0)
         return (rng[0] + rng[1]) / 2.0
 
-    def _add_repair(rank, raw_name, legacy, stat_text, source, note):
+    def _add_repair(rank, raw_name, legacy, stat_text, source, note,
+                    code_hint=None):
         canon, own_rank = resolve_part(raw_name)
         if not canon and legacy:
             canon, own_rank = resolve_part(legacy)
@@ -1721,11 +1897,12 @@ def parse_inspection_page(html_text: str) -> dict:
             note = (note + " · 랭크 불일치").strip(" ·")
             if _rank_weight(own_rank) > _rank_weight(rank):
                 rank = own_rank
-        code = None
-        for word, c in _cfg.STATUS_TEXT_MAP.items():
-            if word in (stat_text or ""):
-                code = c
-                break
+        code = code_hint
+        if not code:
+            for word, c in _cfg.STATUS_TEXT_MAP.items():
+                if word in (stat_text or ""):
+                    code = c
+                    break
         out["repairs"].append({
             "part": canon, "raw": raw_name, "legacy": legacy or "",
             "position": _positions(raw_name) or _positions(legacy or ""),
@@ -1738,6 +1915,50 @@ def parse_inspection_page(html_text: str) -> dict:
         piece = f"{raw_name} {stat_text or '판정 불가'}".strip()
         out["rank_sections"][rank] = (prev + " / " + piece) if prev else piece
         return 1
+
+    def _from_damage_map(sd: dict) -> int:
+        """부위키 -> 손상코드 표에서 이 차의 수리 내역을 읽는다 (기본 경로).
+
+        페이지 자바스크립트가 실제로 쓰는 데이터가 이것이다. 부위 표
+        (dataGroup)는 모든 부위를 늘어놓은 사전일 뿐이라 그대로 읽으면
+        무사고 차가 전부 수리된 것처럼 보인다.
+        """
+        damage = sd.get("damage")
+        table = sd.get("part_table") or {}
+        if damage is None or not table:
+            return 0
+        order = list(_cfg.DAMAGE_CODE_TEXT)
+        n = 0
+        for key, codes in damage.items():
+            codes = [str(c).strip().upper() for c in (codes or []) if c]
+            if not codes:
+                continue                      # null = 이 부위는 수리 없음
+            entry = table.get(key)
+            if entry is None:
+                out["unmatched_parts"].append(
+                    f"[?] script 키 {key!r} — 부위 표에 없음")
+                continue
+            suffix = re.sub(r"[^0-9A-Za-z]", "",
+                            entry.get("lank") or "")[-1:].upper()
+            rank = _cfg.LANK_SUFFIX_TO_RANK.get(suffix)
+            if rank is None:
+                out["unmatched_parts"].append(
+                    f"[?] {entry.get('name')} — 랭크 표기가 없음 (lank={entry.get('lank')!r})")
+                continue
+            # 여러 손상이 겹치면 무거운 쪽을 대표 상태로 삼는다.
+            codes.sort(key=lambda c: order.index(c) if c in order else 99)
+            texts = [_cfg.DAMAGE_CODE_TEXT[c] for c in codes
+                     if c in _cfg.DAMAGE_CODE_TEXT]
+            head = _cfg.DAMAGE_CODE_TEXT.get(codes[0], "")
+            hint = None
+            for word, c in _cfg.STATUS_TEXT_MAP.items():
+                if word in head:
+                    hint = c
+                    break
+            n += _add_repair(rank, entry["name"], entry.get("legacy"),
+                             " · ".join(texts), "script:data",
+                             f"{key}={'+'.join(codes)}", code_hint=hint)
+        return n
 
     def _from_script_vars(sd: dict) -> int:
         """script 변수(point / opt / lank-value 레코드)에서 수리 내역을 읽는다."""
@@ -1886,20 +2107,38 @@ def parse_inspection_page(html_text: str) -> dict:
         "record_raw": script_data.get("record_raw") or "",
         "flags": sorted((script_data.get("flags") or {}).keys()),
         "defs": script_data.get("defs") or [],
+        "part_table": len(script_data.get("part_table") or {}),
+        "part_table_from": script_data.get("part_table_from") or "",
+        "damage_from": script_data.get("damage_from") or "",
+        "damage_raw": script_data.get("damage_raw") or "",
+        "damage_parts": sum(
+            1 for v in (script_data.get("damage") or {}).values() if v),
+        "damage_total": len(script_data.get("damage") or {}),
     }
 
-    n_script = _from_script_vars(script_data) if script_data else 0
-    if not n_script:
-        n_script = _from_script()
-    if n_script:
-        out["parse_note"] = "script 안의 데이터에서 읽음"
+    # 부위키->손상코드 표가 있으면 그것이 결론이다. 수리 0건도 정상적인
+    # 결론(무사고)이므로, 비었다고 다른 경로로 넘어가면 안 된다.
+    has_damage_map = bool(script_data.get("damage") is not None
+                          and script_data.get("part_table"))
+    n_script = _from_damage_map(script_data) if has_damage_map else 0
+    if has_damage_map:
+        out["parse_note"] = (
+            f"script 의 부위별 손상표에서 읽음 ({script_data.get('damage_from')})")
         for rk in _cfg.LANK_SUFFIX_TO_RANK.values():
             out["rank_sections"].setdefault(rk, "없음")
-    elif script_data.get("records"):
-        # 레코드는 찾았는데 부위를 하나도 못 맞춘 경우 — 조용히 '없음' 이
-        # 되면 안 된다. 표시해서 사람이 확인하게 한다.
-        out["parse_note"] = ("script 에서 수리 레코드는 찾았으나 부위를 "
-                             "못 맞췄습니다 (판정 불가)")
+    else:
+        n_script = _from_script_vars(script_data) if script_data else 0
+        if not n_script:
+            n_script = _from_script()
+        if n_script:
+            out["parse_note"] = "script 안의 데이터에서 읽음"
+            for rk in _cfg.LANK_SUFFIX_TO_RANK.values():
+                out["rank_sections"].setdefault(rk, "없음")
+        elif script_data.get("records"):
+            # 레코드는 찾았는데 부위를 하나도 못 맞춘 경우 — 조용히 '없음' 이
+            # 되면 안 된다. 표시해서 사람이 확인하게 한다.
+            out["parse_note"] = ("script 에서 수리 레코드는 찾았으나 부위를 "
+                                 "못 맞췄습니다 (판정 불가)")
 
     # initLankFlag 는 '어느 랭크에 수리가 있는지' 를 랭크별로 알려 준다.
     # 우리가 읽어 낸 것과 어긋나면 조용히 넘어가지 말고 알린다.
@@ -2096,8 +2335,19 @@ def parse_inspection_page(html_text: str) -> dict:
         if not found_here:
             out["unmatched_parts"].append(f"[{rank}] {body[:60]}")
 
-    # 랭크 행을 아예 못 찾았으면 마크업이 예상과 다르다는 뜻
-    if not out["rank_sections"]:
+    # 성능기록부를 '사진' 으로만 올린 매물이 있다. 이 페이지에는 표도
+    # script 데이터도 없고 이미지 한 장뿐이라 읽을 것이 없다. 파서 고장이
+    # 아니므로 그렇게 말해야 하고, 무엇보다 '읽었더니 흠결이 없더라' 로
+    # 오해되면 안 된다 (README: 없는 값을 0 으로 채우지 않는다).
+    page_txt = soup.get_text(" ", strip=True)
+    img_alts = " ".join((im.get("alt") or "") for im in soup.find_all("img"))
+    if not soup.find_all("table") and _cfg.LANK_LIST_CLASS not in html_text and (
+            "사진으로 등록한" in page_txt or "등록 사진" in img_alts):
+        out["page_is_image"] = True
+        out["parse_note"] = ("성능기록부가 사진(이미지)으로만 등록된 매물입니다 — "
+                             "페이지에서 읽어 낼 수 있는 항목이 없습니다")
+    elif not out["rank_sections"]:
+        # 랭크 행을 아예 못 찾았으면 마크업이 예상과 다르다는 뜻
         out["parse_note"] = ("랭크 행(외판 1랭크 등)을 찾지 못했습니다 — "
                              "마크업이 예상과 다릅니다")
 
@@ -2133,8 +2383,14 @@ def parse_inspection_page(html_text: str) -> dict:
         scope = dtable if dtable is not None else soup
         # 대분류 th 를 찾고, rowspan 이 덮는 행들의 상태 칸을 전부 모은다
         states: list[tuple[str | None, str]] = []
+        # 대분류가 '누유' 가 아니라 '오일누유' · '냉각수누유' 처럼 앞뒤로
+        # 낱말이 붙어 나온다. 정확히 같은 칸만 찾으면 통째로 놓친다.
+        # 표 안에서만 찾으므로 '사용연료: 전기' 같은 오탐은 여전히 없다.
+        def _detail_hit(txt: str) -> bool:
+            return txt == key or txt.endswith(key) or txt.startswith(key)
+
         for th in scope.find_all("th"):
-            if th.get_text(" ", strip=True).replace(" ", "") != key:
+            if not _detail_hit(th.get_text(" ", strip=True).replace(" ", "")):
                 continue
             seen_detail.add(key)
             try:
@@ -2153,7 +2409,8 @@ def parse_inspection_page(html_text: str) -> dict:
                     if not _has_state(td):
                         continue
                     states.append(_pick_selected(td, "state"))
-            break
+            # '누유' 는 '오일누유' 와 '냉각수누유' 두 대분류에 걸쳐 있다.
+            # 첫 칸에서 멈추면 나머지 대분류의 불량을 놓친다.
 
         if not states:
             # 대분류가 th 가 아니거나 표 밖에 있는 경우

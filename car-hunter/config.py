@@ -272,6 +272,35 @@ STATUS_TEXT_MAP = {
     "손상": "T", "파손": "T",
 }
 
+# 성능기록부 script 안의 손상 코드.
+#
+# 페이지의 자바스크립트가 쓰는 진짜 데이터는 부위 목록(dataGroup)이 아니라
+#   performanceCheck.init({ data: {"frontFenderRight":["CHANGE"], ...} })
+# 쪽이다. dataGroup 은 이 차와 무관한 '모든 부위 표'(코드·이름·랭크)이고,
+# data 가 이 차의 실제 수리 내역이다. 값이 null 이면 그 부위는 수리 없음.
+#
+# 코드 순서는 performanceCheck.fnStats() 의 switch 문, 즉
+# this.point = ['교환','판금/용접','부식','흠집','요철','손상'] 과 같다.
+# 앞에 올수록 무거운 손상이다 (sortValue 의 정렬 기준과 동일).
+DAMAGE_CODE_TEXT = {
+    "CHANGE": "교환",
+    "METAL": "판금/용접",
+    "CORROSION": "부식",
+    "SCRATCH": "흠집",
+    "HILLS": "요철",
+    "DAMAGE": "손상",
+}
+
+# 구버전 표기는 부위별 배열이 아니라 "hood_1" 같은 문자열이다.
+# performanceCheck.rtOldValue() 의 대응표를 그대로 옮긴 것.
+DAMAGE_LEGACY_CODES = {
+    1: ["CHANGE"],
+    2: ["METAL"],
+    3: ["CORROSION"],
+    4: ["CHANGE", "CORROSION"],
+    5: ["METAL", "CORROSION"],
+}
+
 # 성능기록부의 상태 부호. 동그라미 문자로 표기된다.
 INSPECTION_SYMBOLS = {
     "ⓧ": "X", "Ⓧ": "X", "⊗": "X",

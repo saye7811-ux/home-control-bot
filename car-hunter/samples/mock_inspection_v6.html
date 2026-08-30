@@ -1,0 +1,156 @@
+<!-- 시험용 가짜 성능기록부 페이지 (v6)
+     2026-08 브라우저 실측으로 확인된 '진짜' 구조를 그대로 옮긴 것.
+
+     핵심: 수리 부위는 dataGroup 이 아니라
+           performanceCheck.init({ data: {...} }) 에 들어 있다.
+       - dataGroup  : 모든 부위의 사전 (코드 / 영문이름 / 한글이름 / 랭크)
+                      -> 이 차와 무관하다. 이걸 수리 내역으로 읽으면
+                         무사고 차가 전부 수리된 것처럼 보인다.
+       - init 의 data : 이 차의 실제 수리 내역.
+                      값이 null 인 부위는 수리 없음.
+
+     기대 결과:
+       외판1  프론트 휀더(우) 교환 / 프론트 도어(우) 교환
+       외판2  없음
+       골격A  없음
+       골격B  필러 패널 A(우) 판금/용접
+       골격C  없음
+     라벨: 사고이력=있음, 단순수리=있음, 주행거리=60,608km, 리콜 이행 -->
+<html><head><meta charset="utf-8"><title>성능·상태점검기록부</title></head>
+<body>
+<table class="tbl_info">
+  <tr>
+    <th scop="col">사고이력</th><th scop="col">상태</th>
+    <th scop="col">항목/해당부품</th><th scop="col">가격조사 · 산정액</th>
+    <th scop="col">특기사항</th>
+  </tr>
+  <tr><th scope="row">주행거리 계기상태</th>
+      <td class="td_left"><span class="txt_state on">양호</span>
+                          <span class="txt_state">불량</span></td>
+      <td></td><td></td><td></td></tr>
+  <!-- 주행거리 실제 수치는 선택지 칸이 아니라 '다음 칸' 의 txt_detail 에 있다 -->
+  <tr><th scope="row">주행거리</th>
+      <td class="td_left"><span class="txt_state">많음</span>
+                          <span class="txt_state">보통</span>
+                          <span class="txt_state">적음</span></td>
+      <td class="td_left"><span class="txt_detail"> 60,608km</span></td>
+      <td></td><td></td></tr>
+  <tr><th scope="row">차대번호 표기</th>
+      <td class="td_left"><span class="txt_state on">양호</span>
+                          <span class="txt_state">부적합</span></td>
+      <td></td><td></td><td></td></tr>
+  <tr><th scope="row">튜닝</th>
+      <td class="td_left"><span class="txt_state on">없음</span>
+                          <span class="txt_state">있음</span></td>
+      <td></td><td></td><td></td></tr>
+  <!-- 리콜 이행 여부는 별도 라벨 없이 세 번째 칸의 txt_detail 로만 온다 -->
+  <tr><th scope="row">리콜대상</th>
+      <td class="td_left"><span class="txt_state">해당없음</span>
+                          <span class="txt_state on">해당</span></td>
+      <td class="td_left"><span class="txt_detail">이행</span></td>
+      <td></td><td></td></tr>
+</table>
+
+<!-- 사고이력·단순수리는 위 표의 '열 제목' 과 글자가 겹친다.
+     열 제목을 라벨로 집으면 옆 칸('상태')을 값으로 삼게 된다. -->
+<table class="tbl_repair">
+  <tr><th scope="row">사고이력 <a class="uibtn_q" href="#q1">자세히보기</a></th>
+      <td class="td_left" colspan="2"><span class="txt_state on">있음</span>
+                                      <span class="txt_state">없음</span></td></tr>
+  <tr><th scope="row">단순수리 <a class="uibtn_q" href="#q2">자세히보기</a></th>
+      <td class="td_left" colspan="2"><span class="txt_state on">있음</span>
+                                      <span class="txt_state">없음</span></td></tr>
+</table>
+
+<!-- 세부상태 대분류는 '누유' 가 아니라 '오일누유' · '냉각수누유' 로 나온다 -->
+<table class="tbl_detail">
+  <tr><th>주요항목</th><th>항목/해당부품</th><th>상태</th></tr>
+  <tr><th rowspan="2">오일누유</th><th>실린더 커버</th>
+      <td class="td_left"><span class="txt_state on">없음</span>
+                          <span class="txt_state">미세누유</span>
+                          <span class="txt_state">누유</span></td></tr>
+  <tr><th>실린더 블록/오일팬</th>
+      <td class="td_left"><span class="txt_state on">없음</span>
+                          <span class="txt_state">미세누유</span>
+                          <span class="txt_state">누유</span></td></tr>
+  <tr><th>냉각수누유</th><th>실린더 헤드/개스킷</th>
+      <td class="td_left"><span class="txt_state on">없음</span>
+                          <span class="txt_state">미세누수</span>
+                          <span class="txt_state">누수</span></td></tr>
+  <tr><th>변속기</th><th>자동변속기(A/T)</th>
+      <td class="td_left"><span class="txt_state on">양호</span>
+                          <span class="txt_state">불량</span></td></tr>
+  <tr><th>동력전달</th><th>클러치 어셈블리</th>
+      <td class="td_left"><span class="txt_state on">양호</span>
+                          <span class="txt_state">불량</span></td></tr>
+  <tr><th>조향</th><th>스티어링 기어</th>
+      <td class="td_left"><span class="txt_state on">양호</span>
+                          <span class="txt_state">불량</span></td></tr>
+  <tr><th>제동</th><th>배력장치</th>
+      <td class="td_left"><span class="txt_state on">양호</span>
+                          <span class="txt_state">불량</span></td></tr>
+  <tr><th>전기</th><th>발전기 출력</th>
+      <td class="td_left"><span class="txt_state on">양호</span>
+                          <span class="txt_state">불량</span></td></tr>
+  <tr><th>충전구 절연 상태</th><th>-</th>
+      <td class="td_left"><span class="txt_state on">양호</span>
+                          <span class="txt_state">불량</span></td></tr>
+  <tr><th>구동축전지 격리 상태</th><th>-</th>
+      <td class="td_left"><span class="txt_state on">양호</span>
+                          <span class="txt_state">불량</span></td></tr>
+  <tr><th>고전원전기배선 상태</th><th>-</th>
+      <td class="td_left"><span class="txt_state on">양호</span>
+                          <span class="txt_state">불량</span></td></tr>
+</table>
+
+<!-- 랭크 목록은 빈 틀이다. 자바스크립트가 아래 script 를 읽어 채운다. -->
+<div class="box_state">
+  <ul class="list_state uiListLank1"><li class="uiLankNone">없음</li></ul>
+  <ul class="list_state uiListLank2"><li class="uiLankNone">없음</li></ul>
+  <ul class="list_state uiListLankA"><li class="uiLankNone">없음</li></ul>
+  <ul class="list_state uiListLankB"><li class="uiLankNone">없음</li></ul>
+  <ul class="list_state uiListLankC"><li class="uiLankNone">없음</li></ul>
+</div>
+
+<script type="text/javascript">
+(function($){
+
+var performanceCheck = {
+	dataGroup: [
+		{ code: '002', name: 'hood',                  value: '후드',            lank: '1', has_old: false },
+		{ code: '003', name: 'frontFenderLeft',       value: '프론트 휀더(좌)',   lank: '1', has_old: false },
+		{ code: '004', name: 'frontFenderRight',      value: '프론트 휀더(우)',   lank: '1', has_old: false },
+		{ code: '005', name: 'frontDoorLeft',         value: '프론트 도어(좌)',   lank: '1', has_old: false },
+		{ code: '007', name: 'frontDoorRight',        value: '프론트 도어(우)',   lank: '1', has_old: false },
+		{ code: '009', name: 'trunkLead',             value: '트렁크 리드',      lank: '1', has_old: false },
+		{ code: '011', name: 'frontPanel',            value: '프론트 패널',      lank: 'A', has_old: false },
+		{ code: '016', name: 'crossMember',           value: '크로스 멤버',      lank: 'A', has_old: false },
+		{ code: '017', name: 'dashPanel',             value: '대쉬 패널',
+		  value_old: '프론트 대쉬 패널', lank: 'C', has_old: true },
+		{ code: '018', name: 'roofPanel',             value: '루프 패널',       lank: '2', has_old: false },
+		{ code: '019', name: 'floorPanel',            value: '플로어 패널',      lank: 'C', has_old: false },
+		{ code: '025', name: 'quarterPanelLeft',      value: '쿼터 패널(리어펜더)(좌)', lank: '2', has_old: false },
+		{ code: '029', name: 'pillarPanelFrontLeft',  value: '필러 패널 A(좌)',
+		  value_old: '필러 패널(앞)(좌)', lank: 'B', has_old: true },
+		{ code: '032', name: 'pillarPanelFrontRight', value: '필러 패널 A(우)',
+		  value_old: '필러 패널(앞)(우)', lank: 'B', has_old: true },
+		{ code: '036', name: 'frontSideMemberLeft',   value: '프론트 사이드 멤버(좌)', lank: 'B', has_old: false }
+	],
+
+	initLankFlag: { lank1: false, lank2: false, lankA: false, lankB: false, lankC: false },
+
+	cacheElement : function(value){
+		this.point=['교환','판금/용접','부식','흠집','요철','손상'];
+		this.data=value.data;
+	}
+}
+
+// 이 차의 실제 수리 내역. null 인 부위는 수리 없음.
+performanceCheck.init({
+	data : {"hood":null,"frontFenderLeft":null,"frontFenderRight":["CHANGE"],"frontDoorLeft":null,"frontDoorRight":["CHANGE"],"trunkLead":null,"frontPanel":null,"crossMember":null,"dashPanel":null,"roofPanel":null,"floorPanel":null,"quarterPanelLeft":null,"pillarPanelFrontLeft":null,"pillarPanelFrontRight":["METAL"],"frontSideMemberLeft":null}
+});
+
+}($jq));
+</script>
+</body>
+</html>

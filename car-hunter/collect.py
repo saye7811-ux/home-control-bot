@@ -1053,12 +1053,15 @@ def cmd_hunt_page(args) -> int:
     """
     path = args.hunt if isinstance(args.hunt, str) and os.path.isfile(args.hunt) else None
     if path is None:
-        cands = sorted(glob.glob(os.path.join(
-            os.path.dirname(DETAILS_JSON), "raw_inspection_page*.html")))
+        cands = glob.glob(os.path.join(
+            os.path.dirname(DETAILS_JSON), "raw_inspection_page*.html"))
         if not cands:
             die("성능기록부 HTML 이 없습니다. "
                 "`python collect.py --inspect-page --carid <번호>` 를 먼저 실행하세요.")
-        path = cands[-1]
+        # 파일 이름이 아니라 '가장 최근에 받은' 것을 본다.
+        # 이름순으로 고르면 방금 --carid 로 받은 페이지가 아니라
+        # 차량번호가 가장 큰 페이지를 열게 된다.
+        path = max(cands, key=os.path.getmtime)
     raw = open(path, encoding="utf-8", errors="replace").read()
     decoded = _decode_js_escapes(raw)
 
@@ -1077,6 +1080,13 @@ def cmd_hunt_page(args) -> int:
     hits = [k for k in ("교환", "판금", "휀더", "필러", "tit_part")
             if decoded.count(k) > 0]
     if not hits:
+        # 성능기록부를 사진으로만 올린 매물이면 페이지에 표도 script 도 없다.
+        # 우회 URL 을 아무리 찾아도 나올 것이 없으므로 그렇게 안내한다.
+        if "사진으로 등록한" in decoded or "등록 사진" in decoded:
+            warn("이 매물은 성능기록부를 사진(이미지)으로만 올렸습니다.")
+            print("    -> 페이지에 읽을 데이터가 원래 없습니다. 파서 문제가 아닙니다.")
+            print("       이 매물은 성능기록부를 눈으로 직접 확인해야 합니다.")
+            return 0
         warn("부위/상태 관련 문자열이 페이지 어디에도 없습니다.")
         print("    -> 데이터가 원본 HTML 에 없다는 뜻입니다. 아래 우회로를 시험하세요:")
         print("       python collect.py --try-urls --carid <번호>")
@@ -1108,6 +1118,21 @@ def cmd_hunt_page(args) -> int:
                     print(f"            구버전 표기(name201806): {legacy[:3]}")
         else:
             print("    부위 목록(opt): 못 찾음")
+
+        tbl = sd.get("part_table") or {}
+        print(f"    부위 표(dataGroup): {len(tbl)}개 키 "
+              f"({sd.get('part_table_from') or '못 찾음'})")
+        dmg = sd.get("damage")
+        if dmg is None:
+            print("    부위별 손상표(init data): 못 찾음")
+        else:
+            hurt = {k: v for k, v in dmg.items() if v}
+            print(f"    부위별 손상표(init data): {len(dmg)}개 부위 중 "
+                  f"{len(hurt)}개에 손상  ({sd.get('damage_from') or '-'})")
+            for k, v in hurt.items():
+                e = tbl.get(k) or {}
+                print(f"        {k:24} {v}  -> "
+                      f"{e.get('name') or '(부위 표에 없음)'} / 랭크 {e.get('lank') or '?'}")
 
         recs = sd.get("records") or []
         print(f"    수리 레코드(lank/value): {len(recs)}건")
@@ -1340,13 +1365,21 @@ def cmd_inspect_page(args) -> int:
     print("=" * 74)
 
     parsed = api.parse_inspection_page(html_text)
+    ss = parsed.get("script_summary") or {}
     if parsed.get("parse_note"):
         warn(parsed["parse_note"])
+
+    if parsed.get("page_is_image"):
+        print("\n[이 매물은 성능기록부를 사진으로만 올렸습니다]")
+        print("    페이지에 표도 script 데이터도 없습니다. 파서 문제가 아니라")
+        print("    읽을 것이 원래 없는 페이지입니다. 아래 항목이 전부")
+        print("    '판정 불가' 로 나오는 것이 정상이며, 무사고로 읽어서는 안 됩니다.")
+        print("    -> 이 매물은 성능기록부를 눈으로 직접 확인해야 합니다.")
 
     print("\n[랭크별 내용]")
     for rank, body in (parsed.get("rank_sections") or {}).items():
         print(f"  {rank:6} {body}")
-    if not parsed.get("rank_sections"):
+    if not parsed.get("rank_sections") and not parsed.get("page_is_image"):
         warn("랭크 행을 못 찾았습니다.")
 
     # --- 랭크가 비었을 때: 정말 무사고인가, JS 렌더링인가 ---
@@ -1357,7 +1390,17 @@ def cmd_inspect_page(args) -> int:
             my = rec.get("my_accident_count")
             ot = rec.get("other_accident_count")
             print(f"    보험이력: 내차 {my} 건 / 타차 {ot} 건")
-            if (my or 0) or (ot or 0):
+            if ss.get("damage_from"):
+                # 페이지가 부위별로 '수리 없음' 이라고 명시한 경우다.
+                # 보험 처리가 있어도 성능기록부상 교환·판금 부위가 없을 수
+                # 있다(유리·범퍼·상대차 수리 등). 파싱 실패가 아니다.
+                print("    -> 성능기록부의 부위별 손상표를 읽었고 수리 부위가 "
+                      "0건입니다.")
+                print(f"       근거: {ss['damage_from']}")
+                if (my or 0) or (ot or 0):
+                    print("       보험 처리 이력은 있지만 성능기록부에 교환·판금")
+                    print("       부위로는 잡히지 않았습니다 (유리·범퍼·상대차 수리 등).")
+            elif (my or 0) or (ot or 0):
                 warn("사고 기록이 있는데 랭크 목록이 비었습니다 "
                      "-> 자바스크립트로 나중에 채워지는 구조로 보입니다.")
             else:
@@ -1390,12 +1433,17 @@ def cmd_inspect_page(args) -> int:
 
     # script 안 데이터에서 읽었다면 어디서 왔는지 밝힌다. 자리번호를
     # 부위명으로 바꾸는 단계라 한 칸만 밀려도 엉뚱한 부위가 되기 때문이다.
-    ss = parsed.get("script_summary") or {}
-    if ss.get("records"):
+    if ss.get("records") or ss.get("damage_from"):
         print("\n[script 안 데이터 출처]")
         print(f"  상태 코드표 : {ss.get('point')} ({ss.get('point_from') or '-'})")
-        print(f"  부위 목록   : {ss.get('catalogs')}")
-        print(f"  수리 레코드 : {ss['records']}건 ({ss.get('record_from') or '-'})")
+        if ss.get("damage_from"):
+            print(f"  부위 표     : {ss.get('part_table')}개 키 "
+                  f"({ss.get('part_table_from') or '-'})")
+            print(f"  손상 표     : {ss.get('damage_total')}개 부위 중 "
+                  f"{ss.get('damage_parts')}개에 손상  ({ss['damage_from']})")
+        else:
+            print(f"  부위 목록   : {ss.get('catalogs')}")
+            print(f"  수리 레코드 : {ss.get('records')}건 ({ss.get('record_from') or '-'})")
         for r in parsed["repairs"]:
             if r.get("resolved_by"):
                 print(f"    {r['raw']:24} <- {r['resolved_by']}")
