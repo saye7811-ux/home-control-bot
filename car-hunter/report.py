@@ -133,10 +133,10 @@ def _scatter_svg(rows: list[dict], market) -> str:
 
     # 점 그리기.
     #
-    # 색은 σ 로 나눈다 — 리포트의 다른 곳과 같은 자를 써야 눈이 헷갈리지
-    # 않는다. 순위에서 빠진 매물(리스·구매 후보 아닌 트림)은 시세 표본으로만
-    # 쓰이므로 속 빈 점으로 흐리게 그려 구분한다.
-    # 상위 5위는 크게 그리고 차량번호를 옆에 적어 바로 찾을 수 있게 한다.
+    # 색은 σ 크기로만 칠한다 — 흠결은 이미 적정가 산출에서 금액으로 빠졌으므로
+    # '남은 σ' 가 곧 가성비다. 흠결 없는 매물(주의 지표가 하나도 없는 차)은
+    # 초록 테두리로 별도 표시한다.
+    # 순위에서 빠진 매물은 속 빈 흐린 점으로, 상위 5위는 크게 그린다.
     import scoring
     labels = []
     for km, pr, vpct, r in pts:
@@ -151,30 +151,28 @@ def _scatter_svg(rows: list[dict], market) -> str:
                    and scoring.is_buy_candidate(r))
         top = bool(in_rank and rank and rank <= 5)
 
-        # 색은 '모든 걸 감안한 뒤' 의 최종 판정으로 칠한다.
-        # 시세선 대비 싼지만 보면, 사고·과주행·배터리 보증 부족을 금액으로
-        # 뺀 결과가 화면에 안 나타난다.
+        # 색: σ 크기 기준
+        all_risks = scoring.risk_flags(r) if in_rank else []
+        clean = in_rank and not all_risks
         verdict = r.get("value_verdict") or ""
-        bad_risks = [f for f in scoring.risk_flags(r) if f["level"] == "bad"]
         if not in_rank:
-            fill, op, stroke, rad = "var(--mid)", "0.18", "var(--mid)", 4.0
+            fill, op, dot_stroke, stroke_w, rad = "var(--mid)", "0.18", "var(--mid)", 1, 4.0
         else:
-            if verdict == "설명되지 않는 저평가":
-                # 흠결을 다 빼고도 싸다. 다만 빨간 주의 지표가 하나라도
-                # 있으면 파랑을 주지 않는다 — 그래프만 보고 '가성비 좋네'
-                # 하고 클릭하는 것을 막기 위해서다. 금액은 그대로 두고
-                # 색 표시만 낮춘다.
-                fill = "var(--amber)" if bad_risks else "var(--good)"
-            elif verdict == "일부 설명됨":
-                fill = "var(--amber)"
-            elif verdict == "할인 이유 충분":
-                fill = "var(--mid)"
-            elif verdict == "고평가":
-                fill = "var(--bad)"
+            if sg is None:
+                fill, big = "var(--mid)", False
+            elif sg >= 1.5:
+                fill, big = "#1a56db", True
+            elif sg >= 0.5:
+                fill, big = "#7dd3fc", False
+            elif sg >= -0.5:
+                fill, big = "var(--mid)", False
             else:
-                fill = "var(--mid)"
-            op, stroke = "0.85", "var(--dot-stroke)"
-            rad = 8.0 if top else 5.5
+                fill, big = "var(--bad)", False
+            op = "0.85"
+            dot_stroke = "#16a34a" if clean else "var(--dot-stroke)"
+            stroke_w = 3.0 if clean else 1
+            base_r = 8.0 if top else 5.5
+            rad = base_r * 1.5 if big else base_r
 
         bits = [f"{plate}", f"{r.get('trim_key') or r.get('trim') or ''}",
                 f"{fmt_manwon(pr)}", f"{fmt_km(km)}"]
@@ -182,17 +180,20 @@ def _scatter_svg(rows: list[dict], market) -> str:
             bits.append(f"적정가 대비 {gap:+,.0f}만원 ({pct:+.1f}%)")
         if sg is not None:
             bits.append(f"{sg:+.2f}σ")
+        if clean:
+            bits.append("흠결 없음")
         if in_rank and verdict:
             bits.append(f"판정: {verdict}")
-        if in_rank and bad_risks:
-            bits.append("주의: " + " · ".join(f["label"] for f in bad_risks))
+        if in_rank and all_risks:
+            bits.append("주의: " + " · ".join(f["label"] for f in all_risks))
         if not in_rank:
             bits.append("순위 제외 · 시세 표본")
         title = "  |  ".join(b for b in bits if b)
 
+        sw = 3.5 if (top and clean) else (3.0 if top else stroke_w)
         dot = (f'<circle cx="{sx(km):.1f}" cy="{sy(pr):.1f}" r="{rad}" fill="{fill}" '
-               f'fill-opacity="{op}" stroke="{stroke}" '
-               f'stroke-width="{3 if top else 1}" class="dot{" dot-top" if top else ""}">'
+               f'fill-opacity="{op}" stroke="{dot_stroke}" '
+               f'stroke-width="{sw}" class="dot{" dot-top" if top else ""}">'
                f'<title>{_e(title)}</title></circle>')
         if url:
             dot = (f'<a href="{_e(url)}" target="_blank" rel="noopener" '
@@ -296,16 +297,15 @@ def _market_card(market, rows: list[dict]) -> str:
       {warn}
       {_scatter_svg(rows, market)}
       <div class="legend">
-        <span><i class="lg good"></i><b>진짜 가성비</b> — 사고·주행거리·배터리 보증 등
-          모든 흠결을 금액으로 빼고도 싼 이유를 못 찾았고, 빨간 주의 지표도 없음</span>
-        <span><i class="lg amber"></i>일부만 설명됨, 또는 싼 이유를 못 찾았지만
-          <b>빨간 주의 지표가 있음</b> (과주행·배터리 보증 부족 등)</span>
-        <span><i class="lg mid"></i>할인 이유 충분 — 싼 이유가 다 설명됨 (제값)</span>
-        <span><i class="lg bad"></i>고평가</span>
-        <span><i class="lg out"></i>순위 제외 — 리스·렌트이거나 구매 후보가 아닌 트림
-          (시세 표본으로만 사용)</span>
-        <span><i class="lg top"></i>순위 1~5위 (차량번호 표시)</span>
+        <span><i class="lg good-dark"></i><b>확실한 저평가</b> &sigma; &ge; 1.5</span>
+        <span><i class="lg good-light"></i><b>약한 저평가</b> &sigma; 0.5~1.5</span>
+        <span><i class="lg mid"></i>시세 수준 &sigma; &plusmn;0.5</span>
+        <span><i class="lg bad"></i>고평가 &sigma; &lt; &minus;0.5</span>
+        <span><i class="lg out"></i>순위 제외 (리스·렌트, 구매 후보 아닌 트림)</span>
+        <span><i class="lg clean-lg"></i>초록 테두리 = 걸리는 흠결이 없는 차</span>
       </div>
+      <p class="muted small">파란 점 = 흠결을 다 금액으로 빼고도 판매가가 싼 매물.
+        진할수록 확실. 초록 테두리 = 걸리는 흠결이 없는 차.</p>
       <p class="muted">점을 클릭하면 엔카 매물이 새 탭으로 열립니다.
         마우스를 올리면 차량번호·트림·가격·주행거리·차액·&sigma;가 나옵니다.<br>
         점선 = 중앙 연식·중앙 신차가 기준 시세선입니다. 실제 평가는 매물마다
@@ -646,8 +646,13 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
         # 아예 모르는 매물이라 다른 매물과 같은 눈으로 보면 안 된다.
         # 차량번호를 그대로 엔카 매물로 연결한다. 리포트에서 매물을 볼 때
         # 링크 칸까지 눈을 옮길 필요가 없다.
+        import scoring as _sc
+        _clean = not bool(_sc.risk_flags(r))
+        _clean_badge = ('<span class="clean-badge" title="흠결 없음 — 걸리는 주의 지표 없음">'
+                        '&#9679;</span>' if _clean else "")
         plate_html = (f'<a href="{_e(url)}" target="_blank" rel="noopener">{_e(plate)}</a>'
                       if url else _e(plate))
+        plate_html = plate_html + _clean_badge
         photo_only = str(r.get("page_is_image", "")).strip().lower() in ("true", "1")
         row_cls = ' class="row-photo"' if photo_only else ""
         photo_flag = ('<div class="flag-photo">성능기록부 사진뿐 — 원본 요구 필수</div>'
@@ -693,7 +698,7 @@ def _rank_rows(rows: list[dict], stage: str) -> str:
 
 CSS = """
 :root{--bg:#f7f7f5;--fg:#1c1c1a;--muted:#6b6b66;--card:#fff;--bd:#e2e2dd;
---good:#2563eb;--bad:#dc2626;--mid:#9ca3af;--line:#7c3aed;--grid:#ececE6;
+--good:#2563eb;--good-dark:#1a56db;--bad:#dc2626;--mid:#9ca3af;--line:#7c3aed;--grid:#ececE6;
 --grid-bg:#fbfbf9;--dot-stroke:#fff;--plate-bg:#111;--plate-fg:#ffd400;--warnbg:#fff7ed;--warnfg:#9a3412;--amber:#d97706}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){
 --bg:#16161a;--fg:#ececec;--muted:#9a9a94;--card:#1e1e23;--bd:#33333a;
@@ -819,12 +824,16 @@ tr.row-photo td{background:rgba(124,45,18,.06)}
 .legend span{display:flex;align-items:center;gap:5px}
 .lg{width:11px;height:11px;border-radius:50%;display:inline-block;flex:0 0 auto}
 .lg.good{background:var(--good)}
+.lg.good-dark{background:var(--good-dark)}
 .lg.mid{background:var(--mid)}
 .lg.bad{background:var(--bad)}
 .lg.amber{background:var(--amber)}
 .lg.out{background:var(--mid);opacity:.25;border:1px solid var(--mid)}
 .lg.top{background:transparent;border:3px solid var(--dot-stroke);
         width:13px;height:13px}
+.lg.good-light{background:#7dd3fc}
+.lg.clean-lg{background:transparent;border:3px solid #16a34a;width:12px;height:12px}
+.clean-badge{color:#16a34a;font-size:15px;margin-left:5px;vertical-align:-.1em;line-height:1}
 .dotlink{cursor:pointer}
 .dot{transition:r .1s}
 .dotlink:hover .dot{stroke:var(--fg);stroke-width:2.5}
