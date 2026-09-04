@@ -14,7 +14,9 @@ from __future__ import annotations
 import argparse
 import copy
 import os
+import shutil
 import sys
+from datetime import date as _date
 
 import config
 import history
@@ -740,6 +742,69 @@ def main() -> int:
         with open(REPORT_HTML, "w", encoding="utf-8") as f:
             f.write(html)
         log(f"저장: {REPORT_HTML}")
+
+        # 날짜별 사본 & 요약 JSON (캐시 우회용)
+        _today = _date.today().isoformat()
+
+        _dated_html = os.path.join(os.path.dirname(REPORT_HTML),
+                                   f"report_{_today}.html")
+        shutil.copy(REPORT_HTML, _dated_html)
+        log(f"저장: {_dated_html}")
+
+        _diff = diff or {}
+        _sum: dict = {
+            "run_date": _today,
+            "brief": {
+                "headline": brief.get("headline", ""),
+                "tone": brief.get("tone", ""),
+                "changes": brief.get("changes", []),
+            },
+            "top_listings": [],
+            "weekly_diff": {},
+        }
+        for _r in ranked[:max(args.top, 20)]:
+            _flags = scoring.risk_flags(_r)
+            _sum["top_listings"].append({
+                "rank": to_int(_r.get("rank")),
+                "plate_no": _r.get("plate_no", ""),
+                "model_label": _r.get("model_label", ""),
+                "trim": _r.get("trim", ""),
+                "year": to_int(_r.get("year")),
+                "month": to_int(_r.get("month")),
+                "mileage_km": to_int(_r.get("mileage_km")),
+                "price_manwon": to_int(_r.get("price_manwon")),
+                "fair_price_manwon": to_int(_r.get("fair_price_manwon")),
+                "value_gap_manwon": to_int(_r.get("value_gap_manwon")),
+                "value_gap_pct": to_float(_r.get("value_gap_pct")),
+                "value_gap_sigma": to_float(_r.get("value_gap_sigma")),
+                "value_verdict": _r.get("value_verdict", ""),
+                "risk_flags": [{"label": f["label"], "level": f["level"]}
+                               for f in _flags],
+                "vin_verified": _r.get("vin_option_state") == "verified",
+                "listing_url": _r.get("listing_url", ""),
+            })
+        if _diff.get("has_prev"):
+            _sum["weekly_diff"] = {
+                "price_down": [
+                    {"plate_no": _r.get("plate_no", ""),
+                     "model_label": _r.get("model_label", ""),
+                     "price_manwon": to_int(_r.get("price_manwon")),
+                     "price_change_manwon": to_int(_r.get("price_change_manwon"))}
+                    for _r in (_diff.get("price_down") or [])[:10]
+                ],
+                "new_listings": [
+                    {"plate_no": _r.get("plate_no", ""),
+                     "model_label": _r.get("model_label", ""),
+                     "price_manwon": to_int(_r.get("price_manwon")),
+                     "mileage_km": to_int(_r.get("mileage_km"))}
+                    for _r in (_diff.get("new") or [])[:10]
+                ],
+                "gone_count": len(_diff.get("gone") or []),
+            }
+        _summary_path = os.path.join(os.path.dirname(REPORT_HTML),
+                                     "data", f"summary_{_today}.json")
+        write_json(_summary_path, _sum)
+        log(f"저장: {_summary_path}")
 
     print(f"\n{_hr('━')}")
     print(f" 다음 단계: 위 상위 {args.top}대의 차량번호를 헤이딜러 앱 '숨은이력찾기'로")

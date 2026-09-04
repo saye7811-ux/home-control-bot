@@ -61,10 +61,13 @@ jobs:
 
       - name: 배포할 파일 모으기
         run: |
-          mkdir -p ../_site
+          mkdir -p ../_site/data
           cp report.html ../_site/index.html
+          cp report_*.html ../_site/ 2>/dev/null || true
+          cp data/summary_*.json ../_site/data/ 2>/dev/null || true
           printf 'User-agent: *\nDisallow: /\n' > ../_site/robots.txt
-          ls -la ../_site
+          ls -la ../_site/
+          ls -la ../_site/data/ 2>/dev/null || true
 
       - uses: actions/upload-pages-artifact@v3
         with:
