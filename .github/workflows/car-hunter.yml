@@ -57,6 +57,7 @@ jobs:
         env:
           PYTHONIOENCODING: utf-8
           PYTHONUTF8: "1"
+          TZ: Asia/Seoul
         run: python score.py --top 20
 
       - name: 배포할 파일 모으기
