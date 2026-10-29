@@ -1,0 +1,210 @@
+{
+  "ix_xdrive50": {
+    "key": "ix_xdrive50",
+    "label": "BMW iX (통합 시세선)",
+    "n": 54,
+    "method": "ratio",
+    "intercept": 0.7490885201846229,
+    "coef_age": -0.04841555035608899,
+    "coef_km": -0.0007540075620847964,
+    "median_price": 8270.0,
+    "median_ratio": 0.6774193548387096,
+    "r2": 0.7255461788232336,
+    "resid_std": 0.0432586427043531,
+    "price_min": 5550.0,
+    "price_max": 12200.0,
+    "origin_min": 10600.0,
+    "origin_max": 15920.0,
+    "low_confidence": false,
+    "basis": "무사고",
+    "n_clean": 54,
+    "accident_scale": 1.0,
+    "n_dropped": 0,
+    "dropped_note": "",
+    "n_lease": 0,
+    "km_coverage_note": "",
+    "trim_offsets": {
+      "EQE53 AMG 4MATIC+": 0.020892807286841616,
+      "EQE500": -0.038560327047998895
+    },
+    "trim_stats": [
+      {
+        "trim": "EQE53 AMG 4MATIC+",
+        "n": 13,
+        "mean_pct": 2.0892807286841615,
+        "se_pct": 1.0369142415605876,
+        "t": 2.014902144211782,
+        "applied": true,
+        "why": "t=2.01 — 반영"
+      },
+      {
+        "trim": "EQE500",
+        "n": 12,
+        "mean_pct": -3.8560327047998895,
+        "se_pct": 0.7305057578938936,
+        "t": -5.27857948158703,
+        "applied": true,
+        "why": "t=-5.28 — 반영"
+      },
+      {
+        "trim": "EQE350",
+        "n": 9,
+        "mean_pct": 0.8457221939730561,
+        "se_pct": 1.2127930775357232,
+        "t": 0.6973342853271235,
+        "applied": false,
+        "why": "t=0.70 — 우연과 구분되지 않아 반영하지 않음"
+      },
+      {
+        "trim": "EQE350+",
+        "n": 9,
+        "mean_pct": -0.8772591769214145,
+        "se_pct": 0.8065502971975095,
+        "t": -1.0876682830191677,
+        "applied": false,
+        "why": "t=-1.09 — 우연과 구분되지 않아 반영하지 않음"
+      },
+      {
+        "trim": "XDRIVE45",
+        "n": 3,
+        "mean_pct": 3.6975481965289014,
+        "se_pct": 4.208792862378283,
+        "t": 0.8785293829926116,
+        "applied": false,
+        "why": "표본 3대 — 5대 미만이라 반영하지 않음"
+      },
+      {
+        "trim": "XDRIVE50",
+        "n": 3,
+        "mean_pct": -0.8893840467874786,
+        "se_pct": 2.6697339055890734,
+        "t": -0.33313583983990236,
+        "applied": false,
+        "why": "표본 3대 — 5대 미만이라 반영하지 않음"
+      },
+      {
+        "trim": "XDRIVEM60",
+        "n": 1,
+        "mean_pct": 3.7303114457097934,
+        "se_pct": null,
+        "t": null,
+        "applied": false,
+        "why": "표본 1대 — 5대 미만이라 반영하지 않음"
+      },
+      {
+        "trim": "XDRIVE60",
+        "n": 1,
+        "mean_pct": 7.240771936304212,
+        "se_pct": null,
+        "t": null,
+        "applied": false,
+        "why": "표본 1대 — 5대 미만이라 반영하지 않음"
+      }
+    ],
+    "ref_retention": 0.5699115288225401
+  },
+  "eqe_suv_350": {
+    "key": "eqe_suv_350",
+    "label": "벤츠 EQE SUV (통합 시세선)",
+    "n": 54,
+    "method": "ratio",
+    "intercept": 0.7490885201846229,
+    "coef_age": -0.04841555035608899,
+    "coef_km": -0.0007540075620847964,
+    "median_price": 8270.0,
+    "median_ratio": 0.6774193548387096,
+    "r2": 0.7255461788232336,
+    "resid_std": 0.0432586427043531,
+    "price_min": 5550.0,
+    "price_max": 12200.0,
+    "origin_min": 10600.0,
+    "origin_max": 15920.0,
+    "low_confidence": false,
+    "basis": "무사고",
+    "n_clean": 54,
+    "accident_scale": 1.0,
+    "n_dropped": 0,
+    "dropped_note": "",
+    "n_lease": 0,
+    "km_coverage_note": "",
+    "trim_offsets": {
+      "EQE53 AMG 4MATIC+": 0.020892807286841616,
+      "EQE500": -0.038560327047998895
+    },
+    "trim_stats": [
+      {
+        "trim": "EQE53 AMG 4MATIC+",
+        "n": 13,
+        "mean_pct": 2.0892807286841615,
+        "se_pct": 1.0369142415605876,
+        "t": 2.014902144211782,
+        "applied": true,
+        "why": "t=2.01 — 반영"
+      },
+      {
+        "trim": "EQE500",
+        "n": 12,
+        "mean_pct": -3.8560327047998895,
+        "se_pct": 0.7305057578938936,
+        "t": -5.27857948158703,
+        "applied": true,
+        "why": "t=-5.28 — 반영"
+      },
+      {
+        "trim": "EQE350",
+        "n": 9,
+        "mean_pct": 0.8457221939730561,
+        "se_pct": 1.2127930775357232,
+        "t": 0.6973342853271235,
+        "applied": false,
+        "why": "t=0.70 — 우연과 구분되지 않아 반영하지 않음"
+      },
+      {
+        "trim": "EQE350+",
+        "n": 9,
+        "mean_pct": -0.8772591769214145,
+        "se_pct": 0.8065502971975095,
+        "t": -1.0876682830191677,
+        "applied": false,
+        "why": "t=-1.09 — 우연과 구분되지 않아 반영하지 않음"
+      },
+      {
+        "trim": "XDRIVE45",
+        "n": 3,
+        "mean_pct": 3.6975481965289014,
+        "se_pct": 4.208792862378283,
+        "t": 0.8785293829926116,
+        "applied": false,
+        "why": "표본 3대 — 5대 미만이라 반영하지 않음"
+      },
+      {
+        "trim": "XDRIVE50",
+        "n": 3,
+        "mean_pct": -0.8893840467874786,
+        "se_pct": 2.6697339055890734,
+        "t": -0.33313583983990236,
+        "applied": false,
+        "why": "표본 3대 — 5대 미만이라 반영하지 않음"
+      },
+      {
+        "trim": "XDRIVEM60",
+        "n": 1,
+        "mean_pct": 3.7303114457097934,
+        "se_pct": null,
+        "t": null,
+        "applied": false,
+        "why": "표본 1대 — 5대 미만이라 반영하지 않음"
+      },
+      {
+        "trim": "XDRIVE60",
+        "n": 1,
+        "mean_pct": 7.240771936304212,
+        "se_pct": null,
+        "t": null,
+        "applied": false,
+        "why": "표본 1대 — 5대 미만이라 반영하지 않음"
+      }
+    ],
+    "ref_retention": 0.5699115288225401
+  }
+}
