@@ -1,0 +1,544 @@
+{
+  "run_date": "2026-11-28",
+  "brief": {
+    "headline": "확실한 기회는 없습니다. 다만 아래 3대는 싼 이유를 못 찾았습니다",
+    "tone": "watch",
+    "changes": [
+      "가격 내림 43건 (300만원 이상 12건)",
+      "새 매물 31건",
+      "사라짐 24건"
+    ]
+  },
+  "top_listings": [
+    {
+      "rank": 1,
+      "plate_no": "26어3629",
+      "model_label": "BMW iX",
+      "trim": "xDrive50 스포츠 플러스",
+      "year": 2023,
+      "month": 12,
+      "mileage_km": 60000,
+      "price_manwon": 7200,
+      "fair_price_manwon": 8793,
+      "value_gap_manwon": 1593,
+      "value_gap_pct": 18.12,
+      "value_gap_sigma": 1.59,
+      "value_verdict": "일부 설명됨",
+      "risk_flags": [
+        {
+          "label": "성능기록부 사진뿐",
+          "level": "warn"
+        }
+      ],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43209933"
+    },
+    {
+      "rank": 2,
+      "plate_no": "36나5637",
+      "model_label": "BMW iX",
+      "trim": "xDrive50 스포츠 플러스",
+      "year": 2023,
+      "month": 11,
+      "mileage_km": 62957,
+      "price_manwon": 7290,
+      "fair_price_manwon": 8527,
+      "value_gap_manwon": 1237,
+      "value_gap_pct": 14.51,
+      "value_gap_sigma": 1.23,
+      "value_verdict": "일부 설명됨",
+      "risk_flags": [],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43189621"
+    },
+    {
+      "rank": 3,
+      "plate_no": "64조1540",
+      "model_label": "벤츠 EQE SUV",
+      "trim": "EQE350 4MATIC",
+      "year": 2025,
+      "month": 5,
+      "mileage_km": 16600,
+      "price_manwon": 7000,
+      "fair_price_manwon": 7887,
+      "value_gap_manwon": 887,
+      "value_gap_pct": 11.24,
+      "value_gap_sigma": 2.39,
+      "value_verdict": "일부 설명됨",
+      "risk_flags": [],
+      "vin_verified": true,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=42622715"
+    },
+    {
+      "rank": 4,
+      "plate_no": "29보2085",
+      "model_label": "BMW iX",
+      "trim": "xDrive50 스포츠 플러스",
+      "year": 2023,
+      "month": 11,
+      "mileage_km": 37687,
+      "price_manwon": 8180,
+      "fair_price_manwon": 9106,
+      "value_gap_manwon": 926,
+      "value_gap_pct": 10.17,
+      "value_gap_sigma": 0.92,
+      "value_verdict": "설명되지 않는 저평가",
+      "risk_flags": [],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43248505"
+    },
+    {
+      "rank": 5,
+      "plate_no": "01너3002",
+      "model_label": "BMW iX",
+      "trim": "xDrive50 스포츠 플러스",
+      "year": 2023,
+      "month": 7,
+      "mileage_km": 40528,
+      "price_manwon": 7550,
+      "fair_price_manwon": 8335,
+      "value_gap_manwon": 785,
+      "value_gap_pct": 9.42,
+      "value_gap_sigma": 0.78,
+      "value_verdict": "일부 설명됨",
+      "risk_flags": [],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=42695686"
+    },
+    {
+      "rank": 6,
+      "plate_no": "40고7664",
+      "model_label": "BMW iX",
+      "trim": "xDrive50 스포츠 플러스",
+      "year": 2023,
+      "month": 12,
+      "mileage_km": 56894,
+      "price_manwon": 8190,
+      "fair_price_manwon": 8732,
+      "value_gap_manwon": 542,
+      "value_gap_pct": 6.2,
+      "value_gap_sigma": 0.54,
+      "value_verdict": "일부 설명됨",
+      "risk_flags": [],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43209052"
+    },
+    {
+      "rank": 7,
+      "plate_no": "67모7991",
+      "model_label": "벤츠 EQE SUV",
+      "trim": "EQE350 4MATIC",
+      "year": 2024,
+      "month": 10,
+      "mileage_km": 32208,
+      "price_manwon": 6390,
+      "fair_price_manwon": 6758,
+      "value_gap_manwon": 368,
+      "value_gap_pct": 5.44,
+      "value_gap_sigma": 1.02,
+      "value_verdict": "설명되지 않는 저평가",
+      "risk_flags": [],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43190999"
+    },
+    {
+      "rank": 8,
+      "plate_no": "43마7717",
+      "model_label": "BMW iX",
+      "trim": "xDrive50 스포츠 플러스",
+      "year": 2023,
+      "month": 10,
+      "mileage_km": 55000,
+      "price_manwon": 7599,
+      "fair_price_manwon": 7979,
+      "value_gap_manwon": 380,
+      "value_gap_pct": 4.76,
+      "value_gap_sigma": 0.38,
+      "value_verdict": "일부 설명됨",
+      "risk_flags": [],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43191510"
+    },
+    {
+      "rank": 9,
+      "plate_no": "106모2367",
+      "model_label": "벤츠 EQE SUV",
+      "trim": "EQE350 4MATIC",
+      "year": 2024,
+      "month": 12,
+      "mileage_km": 16000,
+      "price_manwon": 7200,
+      "fair_price_manwon": 7478,
+      "value_gap_manwon": 278,
+      "value_gap_pct": 3.72,
+      "value_gap_sigma": 0.77,
+      "value_verdict": "할인 이유 충분",
+      "risk_flags": [
+        {
+          "label": "성능기록부 사진뿐",
+          "level": "warn"
+        }
+      ],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=41989964"
+    },
+    {
+      "rank": 10,
+      "plate_no": "25소0768",
+      "model_label": "벤츠 EQE SUV",
+      "trim": "EQE350 4MATIC",
+      "year": 2023,
+      "month": 12,
+      "mileage_km": 24511,
+      "price_manwon": 6620,
+      "fair_price_manwon": 6821,
+      "value_gap_manwon": 201,
+      "value_gap_pct": 2.95,
+      "value_gap_sigma": 0.56,
+      "value_verdict": "설명되지 않는 저평가",
+      "risk_flags": [],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43140321"
+    },
+    {
+      "rank": 11,
+      "plate_no": "393고1782",
+      "model_label": "벤츠 EQE SUV",
+      "trim": "EQE350 4MATIC",
+      "year": 2025,
+      "month": 11,
+      "mileage_km": 843,
+      "price_manwon": 8100,
+      "fair_price_manwon": 8261,
+      "value_gap_manwon": 161,
+      "value_gap_pct": 1.95,
+      "value_gap_sigma": 0.43,
+      "value_verdict": "일부 설명됨",
+      "risk_flags": [
+        {
+          "label": "성능기록부 사진뿐",
+          "level": "warn"
+        }
+      ],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=42396124"
+    },
+    {
+      "rank": 12,
+      "plate_no": "06소7832",
+      "model_label": "벤츠 EQE SUV",
+      "trim": "EQE350 4MATIC",
+      "year": 2023,
+      "month": 9,
+      "mileage_km": 28140,
+      "price_manwon": 6590,
+      "fair_price_manwon": 6659,
+      "value_gap_manwon": 69,
+      "value_gap_pct": 1.04,
+      "value_gap_sigma": 0.19,
+      "value_verdict": "설명되지 않는 저평가",
+      "risk_flags": [],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43140599"
+    },
+    {
+      "rank": 13,
+      "plate_no": "36로6577",
+      "model_label": "벤츠 EQE SUV",
+      "trim": "EQE350 4MATIC",
+      "year": 2024,
+      "month": 12,
+      "mileage_km": 6500,
+      "price_manwon": 7600,
+      "fair_price_manwon": 7652,
+      "value_gap_manwon": 52,
+      "value_gap_pct": 0.68,
+      "value_gap_sigma": 0.14,
+      "value_verdict": "할인 이유 충분",
+      "risk_flags": [
+        {
+          "label": "성능기록부 사진뿐",
+          "level": "warn"
+        }
+      ],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=41333360"
+    },
+    {
+      "rank": 14,
+      "plate_no": "10가3609",
+      "model_label": "BMW iX",
+      "trim": "xDrive50 스포츠 플러스",
+      "year": 2024,
+      "month": 2,
+      "mileage_km": 54385,
+      "price_manwon": 8750,
+      "fair_price_manwon": 8807,
+      "value_gap_manwon": 57,
+      "value_gap_pct": 0.65,
+      "value_gap_sigma": 0.06,
+      "value_verdict": "할인 이유 충분",
+      "risk_flags": [],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43080718"
+    },
+    {
+      "rank": 15,
+      "plate_no": "52노1969",
+      "model_label": "벤츠 EQE SUV",
+      "trim": "EQE350 4MATIC",
+      "year": 2023,
+      "month": 12,
+      "mileage_km": 34579,
+      "price_manwon": 6450,
+      "fair_price_manwon": 6460,
+      "value_gap_manwon": 10,
+      "value_gap_pct": 0.16,
+      "value_gap_sigma": 0.03,
+      "value_verdict": "할인 이유 충분",
+      "risk_flags": [
+        {
+          "label": "성능기록부 사진뿐",
+          "level": "warn"
+        }
+      ],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=40706711"
+    },
+    {
+      "rank": 16,
+      "plate_no": "49어5046",
+      "model_label": "벤츠 EQE SUV",
+      "trim": "EQE350 4MATIC",
+      "year": 2023,
+      "month": 12,
+      "mileage_km": 20000,
+      "price_manwon": 6950,
+      "fair_price_manwon": 6951,
+      "value_gap_manwon": 1,
+      "value_gap_pct": 0.02,
+      "value_gap_sigma": 0.0,
+      "value_verdict": "설명되지 않는 저평가",
+      "risk_flags": [],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43091708"
+    },
+    {
+      "rank": 17,
+      "plate_no": "03구1924",
+      "model_label": "BMW iX",
+      "trim": "xDrive50 스포츠 플러스",
+      "year": 2024,
+      "month": 7,
+      "mileage_km": 46936,
+      "price_manwon": 9600,
+      "fair_price_manwon": 9489,
+      "value_gap_manwon": -111,
+      "value_gap_pct": -1.17,
+      "value_gap_sigma": -0.11,
+      "value_verdict": "고평가",
+      "risk_flags": [],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=42440403"
+    },
+    {
+      "rank": 18,
+      "plate_no": "60머6402",
+      "model_label": "BMW iX",
+      "trim": "xDrive50 스포츠 플러스",
+      "year": 2023,
+      "month": 9,
+      "mileage_km": 31948,
+      "price_manwon": 7690,
+      "fair_price_manwon": 7483,
+      "value_gap_manwon": -207,
+      "value_gap_pct": -2.77,
+      "value_gap_sigma": -0.21,
+      "value_verdict": "고평가",
+      "risk_flags": [],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43058902"
+    },
+    {
+      "rank": 19,
+      "plate_no": "02두7915",
+      "model_label": "BMW iX",
+      "trim": "xDrive50 스포츠 플러스",
+      "year": 2023,
+      "month": 7,
+      "mileage_km": 108968,
+      "price_manwon": 6690,
+      "fair_price_manwon": 6506,
+      "value_gap_manwon": -184,
+      "value_gap_pct": -2.82,
+      "value_gap_sigma": -0.18,
+      "value_verdict": "고평가",
+      "risk_flags": [
+        {
+          "label": "과주행 연 3.2만km",
+          "level": "bad"
+        },
+        {
+          "label": "주행 11만km",
+          "level": "bad"
+        },
+        {
+          "label": "배터리 보증 32%",
+          "level": "warn"
+        }
+      ],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43189542"
+    },
+    {
+      "rank": 20,
+      "plate_no": "01두8972",
+      "model_label": "BMW iX",
+      "trim": "xDrive50 스포츠 플러스",
+      "year": 2023,
+      "month": 2,
+      "mileage_km": 91601,
+      "price_manwon": 7490,
+      "fair_price_manwon": 7230,
+      "value_gap_manwon": -260,
+      "value_gap_pct": -3.59,
+      "value_gap_sigma": -0.27,
+      "value_verdict": "고평가",
+      "risk_flags": [
+        {
+          "label": "배터리 보증 43%",
+          "level": "warn"
+        }
+      ],
+      "vin_verified": false,
+      "listing_url": "http://www.encar.com/dc/dc_cardetailview.do?carid=43240943"
+    }
+  ],
+  "weekly_diff": {
+    "price_down": [
+      {
+        "plate_no": "40고7664",
+        "model_label": "BMW iX",
+        "price_manwon": 8190,
+        "price_change_manwon": -560
+      },
+      {
+        "plate_no": "19러1485",
+        "model_label": "벤츠 EQE SUV",
+        "price_manwon": 8800,
+        "price_change_manwon": -500
+      },
+      {
+        "plate_no": "19러1382",
+        "model_label": "벤츠 EQE SUV",
+        "price_manwon": 8950,
+        "price_change_manwon": -350
+      },
+      {
+        "plate_no": "238도7158",
+        "model_label": "벤츠 EQE SUV",
+        "price_manwon": 10400,
+        "price_change_manwon": -300
+      },
+      {
+        "plate_no": "238도7166",
+        "model_label": "벤츠 EQE SUV",
+        "price_manwon": 10000,
+        "price_change_manwon": -300
+      },
+      {
+        "plate_no": "238도7153",
+        "model_label": "벤츠 EQE SUV",
+        "price_manwon": 10200,
+        "price_change_manwon": -300
+      },
+      {
+        "plate_no": "",
+        "model_label": "벤츠 EQE SUV",
+        "price_manwon": 9900,
+        "price_change_manwon": -300
+      },
+      {
+        "plate_no": "238도7168",
+        "model_label": "벤츠 EQE SUV",
+        "price_manwon": 10300,
+        "price_change_manwon": -300
+      },
+      {
+        "plate_no": "238도7192",
+        "model_label": "벤츠 EQE SUV",
+        "price_manwon": 10300,
+        "price_change_manwon": -300
+      },
+      {
+        "plate_no": "238도7179",
+        "model_label": "벤츠 EQE SUV",
+        "price_manwon": 9600,
+        "price_change_manwon": -300
+      }
+    ],
+    "new_listings": [
+      {
+        "plate_no": "24모3007",
+        "model_label": "BMW iX",
+        "price_manwon": 12500,
+        "mileage_km": 10610
+      },
+      {
+        "plate_no": "29보2085",
+        "model_label": "BMW iX",
+        "price_manwon": 8180,
+        "mileage_km": 37687
+      },
+      {
+        "plate_no": "01두8972",
+        "model_label": "BMW iX",
+        "price_manwon": 7490,
+        "mileage_km": 91601
+      },
+      {
+        "plate_no": "108무8105",
+        "model_label": "BMW iX",
+        "price_manwon": 6787,
+        "mileage_km": 4315
+      },
+      {
+        "plate_no": "",
+        "model_label": "BMW iX",
+        "price_manwon": 14956,
+        "mileage_km": 8200
+      },
+      {
+        "plate_no": "328어3874",
+        "model_label": "BMW iX",
+        "price_manwon": 12200,
+        "mileage_km": 7383
+      },
+      {
+        "plate_no": "52부3295",
+        "model_label": "BMW iX",
+        "price_manwon": 12800,
+        "mileage_km": 8721
+      },
+      {
+        "plate_no": "33노4237",
+        "model_label": "BMW iX",
+        "price_manwon": 5690,
+        "mileage_km": 63012
+      },
+      {
+        "plate_no": "39서6580",
+        "model_label": "BMW iX",
+        "price_manwon": 7300,
+        "mileage_km": 40989
+      },
+      {
+        "plate_no": "45보0306",
+        "model_label": "BMW iX",
+        "price_manwon": 6190,
+        "mileage_km": 67817
+      }
+    ],
+    "gone_count": 24
+  }
+}

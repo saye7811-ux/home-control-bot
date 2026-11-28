@@ -1,0 +1,144 @@
+{
+  "ix_xdrive50": {
+    "key": "ix_xdrive50",
+    "label": "BMW iX",
+    "n": 14,
+    "method": "ratio",
+    "intercept": 0.8194494105523479,
+    "coef_age": -0.05637981258255519,
+    "coef_km": -0.0011368113010756034,
+    "median_price": 9395.0,
+    "median_ratio": 0.6923076923076923,
+    "r2": 0.7816950451764497,
+    "resid_std": 0.06686284608065739,
+    "price_min": 6240.0,
+    "price_max": 12500.0,
+    "origin_min": 12260.0,
+    "origin_max": 15920.0,
+    "low_confidence": false,
+    "basis": "무사고",
+    "n_clean": 14,
+    "accident_scale": 1.0,
+    "n_dropped": 0,
+    "dropped_note": "",
+    "n_lease": 0,
+    "km_coverage_note": "회귀 표본 14대 중 5만km 초과가 3대뿐입니다 (상위90% 60,000km / 전체 표본은 91,651km). 주행거리 계수가 약하게 추정돼 과주행 매물의 흠결이 과소평가될 수 있습니다.",
+    "trim_offsets": {},
+    "trim_stats": [
+      {
+        "trim": "XDRIVE45",
+        "n": 5,
+        "mean_pct": -0.009978616440278476,
+        "se_pct": 2.8647000323790213,
+        "t": -0.0034833023798277497,
+        "applied": false,
+        "why": "t=-0.00 — 우연과 구분되지 않아 반영하지 않음"
+      },
+      {
+        "trim": "XDRIVE50",
+        "n": 3,
+        "mean_pct": -5.052130206994454,
+        "se_pct": 3.5889520982138747,
+        "t": -1.4076895062234915,
+        "applied": false,
+        "why": "표본 3대 — 5대 미만이라 반영하지 않음"
+      },
+      {
+        "trim": "XDRIVE60",
+        "n": 2,
+        "mean_pct": 4.422874184834644,
+        "se_pct": 0.10982869190260741,
+        "t": 40.27066250371722,
+        "applied": false,
+        "why": "표본 2대 — 5대 미만이라 반영하지 않음"
+      },
+      {
+        "trim": "XDRIVE40",
+        "n": 1,
+        "mean_pct": 6.715484056462954,
+        "se_pct": null,
+        "t": null,
+        "applied": false,
+        "why": "표본 1대 — 5대 미만이라 반영하지 않음"
+      },
+      {
+        "trim": "XDRIVEM60",
+        "n": 1,
+        "mean_pct": -0.354948722947015,
+        "se_pct": null,
+        "t": null,
+        "applied": false,
+        "why": "표본 1대 — 5대 미만이라 반영하지 않음"
+      }
+    ],
+    "ref_retention": 0.5991534642562801
+  },
+  "eqe_suv_350": {
+    "key": "eqe_suv_350",
+    "label": "벤츠 EQE SUV",
+    "n": 40,
+    "method": "ratio",
+    "intercept": 0.714891614973693,
+    "coef_age": -0.028863637145037625,
+    "coef_km": -0.002306485110014373,
+    "median_price": 7495.0,
+    "median_ratio": 0.6580645161290323,
+    "r2": 0.7940013866254966,
+    "resid_std": 0.03278505086700997,
+    "price_min": 6100.0,
+    "price_max": 10500.0,
+    "origin_min": 10600.0,
+    "origin_max": 15500.0,
+    "low_confidence": false,
+    "basis": "무사고",
+    "n_clean": 40,
+    "accident_scale": 1.0,
+    "n_dropped": 1,
+    "dropped_note": "가격이 이례적인 표본 1건 제외 후 적합 (3.3년/82,030km) — 영향력과 잔차가 모두 큰 매물만 뺐습니다",
+    "n_lease": 0,
+    "km_coverage_note": "회귀 표본 40대 중 5만km 초과가 3대뿐입니다 (상위90% 36,146km / 전체 표본은 61,900km). 주행거리 계수가 약하게 추정돼 과주행 매물의 흠결이 과소평가될 수 있습니다.",
+    "trim_offsets": {
+      "EQE500": -0.027201883927264615,
+      "EQE350": 0.048043935348572396
+    },
+    "trim_stats": [
+      {
+        "trim": "EQE500",
+        "n": 13,
+        "mean_pct": -2.7201883927264614,
+        "se_pct": 0.641796430298713,
+        "t": -4.238397510968388,
+        "applied": true,
+        "why": "t=-4.24 — 반영"
+      },
+      {
+        "trim": "EQE53 AMG 4MATIC+",
+        "n": 11,
+        "mean_pct": -0.02542735783868021,
+        "se_pct": 0.4777113307981974,
+        "t": -0.05322745390232674,
+        "applied": false,
+        "why": "t=-0.05 — 우연과 구분되지 않아 반영하지 않음"
+      },
+      {
+        "trim": "EQE350",
+        "n": 9,
+        "mean_pct": 4.8043935348572395,
+        "se_pct": 1.4032421868919718,
+        "t": 3.4237807127923134,
+        "applied": true,
+        "why": "t=3.42 — 반영"
+      },
+      {
+        "trim": "EQE350+",
+        "n": 6,
+        "mean_pct": 0.9574338942846384,
+        "se_pct": 0.674193407940743,
+        "t": 1.4201175553006746,
+        "applied": false,
+        "why": "t=1.42 — 우연과 구분되지 않아 반영하지 않음"
+      }
+    ],
+    "ref_retention": 0.5245088735879333
+  }
+}
